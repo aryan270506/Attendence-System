@@ -9,33 +9,37 @@ import {
   Alert,
   ScrollView,
 } from 'react-native';
-import StudentList from './Student-List.js';
-
 
 export default function AdminClassSectionSelector({ navigation }) {
-
   const [selectedClass, setSelectedClass] = useState(null);
   const [selectedSection, setSelectedSection] = useState(null);
 
- const classes = ['1st Year', '2nd Year', '3rd Year', '4thYear'];
+  const classes = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
   const sections = ['Div A', 'Div B', 'Div C'];
 
   const handleSubmit = () => {
-  if (selectedClass && selectedSection) {
-    // Navigate to the QR screen with params
-    navigation.navigate("StudentList", {
-      className: selectedClass,
-      sectionName: selectedSection,
-    });
-  } else {
-    Alert.alert(
-      "Incomplete Selection",
-      "Please select both class and section",
-      [{ text: "OK" }]
-    );
-  }
-};
+    if (selectedClass && selectedSection) {
+      // Extract year number (1, 2, 3, 4) from selected class
+      const yearNumber = selectedClass.match(/\d+/)[0];
+      
+      // Extract division letter (A, B, C) from selected section
+      const divisionLetter = selectedSection.split(' ')[1];
 
+      // Navigate to the StudentList screen with params
+      navigation.navigate("StudentList", {
+        className: selectedClass,
+        sectionName: selectedSection,
+        year: yearNumber,
+        division: divisionLetter,
+      });
+    } else {
+      Alert.alert(
+        "Incomplete Selection",
+        "Please select both class and section",
+        [{ text: "OK" }]
+      );
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -43,7 +47,7 @@ export default function AdminClassSectionSelector({ navigation }) {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}  // THIS FIXES SCROLL ISSUE
+        contentContainerStyle={styles.scrollContent}
       >
         <Text style={styles.title}>Select Year & Division</Text>
         <Text style={styles.subtitle}>Choose your class and section</Text>
@@ -75,31 +79,30 @@ export default function AdminClassSectionSelector({ navigation }) {
         </View>
 
         {/* Section Selection */}
-       <View style={styles.section}>
-  <Text style={styles.sectionTitle}>Select Division</Text>
-  <View style={styles.sectionGrid}>
-    {sections.map((section) => (
-      <TouchableOpacity
-        key={section}
-        style={[
-          styles.sectionButton,
-          selectedSection === section && styles.selectedButton,
-        ]}
-        onPress={() => setSelectedSection(section)}
-      >
-        <Text
-          style={[
-            styles.buttonText,
-            selectedSection === section && styles.selectedButtonText,
-          ]}
-        >
-          {section.split(" ")[1]}
-        </Text>
-      </TouchableOpacity>
-    ))}
-  </View>
-</View>
-
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Select Division</Text>
+          <View style={styles.sectionGrid}>
+            {sections.map((section) => (
+              <TouchableOpacity
+                key={section}
+                style={[
+                  styles.sectionButton,
+                  selectedSection === section && styles.selectedButton,
+                ]}
+                onPress={() => setSelectedSection(section)}
+              >
+                <Text
+                  style={[
+                    styles.buttonText,
+                    selectedSection === section && styles.selectedButtonText,
+                  ]}
+                >
+                  {section.split(" ")[1]}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
 
         {/* Selected Info */}
         {(selectedClass || selectedSection) && (
@@ -134,7 +137,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 20,
-    paddingBottom: 60, // Important for scroll
+    paddingBottom: 60,
   },
   title: {
     fontSize: 28,
@@ -166,8 +169,7 @@ const styles = StyleSheet.create({
   },
   sectionGrid: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
+    justifyContent: 'space-between',
   },
   classButton: {
     width: '48%',
@@ -176,19 +178,13 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
   },
-  sectionGrid: {
-  flexDirection: 'row',
-  justifyContent: 'space-between',
-},
-
-sectionButton: {
-  width: '30%',
-  backgroundColor: '#e2e8f0',
-  paddingVertical: 18,
-  borderRadius: 12,
-  alignItems: 'center',
-},
-
+  sectionButton: {
+    width: '30%',
+    backgroundColor: '#e2e8f0',
+    paddingVertical: 18,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
   selectedButton: {
     backgroundColor: '#4f46e5',
   },

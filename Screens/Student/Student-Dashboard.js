@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView } from 'react-native';
-import AttendanceCircle from './Student-Record';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import AttendanceScreen from './Student-Record';
 import StudentQRScannerScreen from './Qr-Scanner';
 import StudentProfile from './Student-Profile';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
 
 // Placeholder screens for each tab
 
@@ -21,7 +23,7 @@ const Studentdashboard = () => {
   const renderScreen = () => {
     switch (activeTab) {
       case 'record':
-  return <AttendanceCircle />;
+  return <AttendanceScreen />;
 
       case 'qr':
         return <StudentQRScannerScreen />;
@@ -33,7 +35,8 @@ const Studentdashboard = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    
+    <SafeAreaView style={{ flex: 1 }}>
       {/* Main Content */}
       <View style={styles.content}>
         {renderScreen()}

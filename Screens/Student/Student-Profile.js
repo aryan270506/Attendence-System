@@ -9,19 +9,27 @@ import {
   Animated,
   Dimensions,
   StatusBar,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import AttendanceCircle from './Student-Record';
+import { ref, get } from "firebase/database";
+import { db } from "../firebase";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigation } from '@react-navigation/native';
 
+import AttendanceScreen from './Student-Record.js';
 
 const { width } = Dimensions.get('window');
 
-const StudentProfile = ({navigation}) => {
-      
+const StudentProfile = ({ navigation, route }) => {
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(50));
+  const [studentData, setStudentData] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    loadStudentData();
+    
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -37,16 +45,35 @@ const StudentProfile = ({navigation}) => {
     ]).start();
   }, []);
 
-  // Sample student data - replace with actual data
-  const studentData = {
-    name: 'Rajesh Kumar Sharma',
-    year: 'Third Year',
-    division: 'A',
-    email: 'rajesh.sharma@student.edu.in',
-    prn: 'PRN2022040123456',
-    course: 'Bachelor of Engineering',
-    department: 'Computer Science',
-    profileImage: 'https://i.pravatar.cc/300?img=33', // Placeholder
+  const loadStudentData = async () => {
+    try {
+      // First, try to get data from route params (if navigated from login)
+      if (route?.params?.studentData) {
+        setStudentData(route.params.studentData);
+        setLoading(false);
+        return;
+      }
+
+      // If no route params, try to get from AsyncStorage (for persistent sessions)
+      const storedStudentKey = await AsyncStorage.getItem('studentKey');
+      if (storedStudentKey) {
+        const studentRef = ref(db, `students/${storedStudentKey}`);
+        const snapshot = await get(studentRef);
+        
+        if (snapshot.exists()) {
+          const data = {
+            ...snapshot.val(),
+            firebaseKey: storedStudentKey
+          };
+          setStudentData(data);
+        }
+      }
+    } catch (error) {
+      console.error("Error loading student data:", error);
+      alert("Failed to load student data");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const InfoCard = ({ label, value, icon }) => (
@@ -55,9 +82,45 @@ const StudentProfile = ({navigation}) => {
         <Text style={styles.iconText}>{icon}</Text>
         <Text style={styles.label}>{label}</Text>
       </View>
-      <Text style={styles.value}>{value}</Text>
+      <Text style={styles.value}>{value || 'N/A'}</Text>
     </View>
   );
+
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" color="#667eea" />
+        <Text style={styles.loadingText}>Loading profile...</Text>
+      </View>
+    );
+  }
+
+  if (!studentData) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <Text style={styles.errorText}>No student data available</Text>
+        <TouchableOpacity 
+          style={styles.retryButton}
+          onPress={() => navigation.replace('Login')}
+        >
+          <Text style={styles.retryButtonText}>Return to Login</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // Format the year display
+  const getYearDisplay = (year) => {
+    if (!year) return 'N/A';
+    const yearNum = parseInt(year);
+    const yearNames = {
+      1: 'First Year',
+      2: 'Second Year', 
+      3: 'Third Year',
+      4: 'Fourth Year'
+    };
+    return yearNames[yearNum] || `Year ${year}`;
+  };
 
   return (
     <View style={styles.container}>
@@ -94,16 +157,26 @@ const StudentProfile = ({navigation}) => {
             <View style={styles.imageContainer}>
               <View style={styles.imageWrapper}>
                 <Image
-                  source={{ uri: studentData.profileImage }}
+                  source={{ 
+                    uri: studentData.profileImage || 
+                         studentData.photoURL || 
+                         'https://i.pravatar.cc/300?img=33' 
+                  }}
                   style={styles.profileImage}
                 />
                 <View style={styles.imageBorder} />
               </View>
             </View>
             
-            <Text style={styles.studentName}>{studentData.name}</Text>
-            <Text style={styles.studentCourse}>{studentData.course}</Text>
-            <Text style={styles.studentDepartment}>{studentData.department}</Text>
+            <Text style={styles.studentName}>
+              {studentData.name || 'Student Name'}
+            </Text>
+            <Text style={styles.studentCourse}>
+              {studentData.course || 'Bachelor of Engineering'}
+            </Text>
+            <Text style={styles.studentDepartment}>
+              {studentData.department || 'Computer Science'}
+            </Text>
           </View>
 
           {/* Credentials Section */}
@@ -117,8 +190,14 @@ const StudentProfile = ({navigation}) => {
             />
             
             <InfoCard
+              label="Student ID"
+              value={studentData.id}
+              icon="🆔"
+            />
+            
+            <InfoCard
               label="Academic Year"
-              value={studentData.year}
+              value={getYearDisplay(studentData.year)}
               icon="📅"
             />
             
@@ -135,29 +214,32 @@ const StudentProfile = ({navigation}) => {
             />
           </View>
 
+          {/* Subjects Section */}
+          {studentData.subjects && Object.keys(studentData.subjects).length > 0 && (
+            <View style={styles.credentialsSection}>
+              <Text style={styles.sectionTitle}>Enrolled Subjects</Text>
+              {Object.values(studentData.subjects).map((subject, index) => (
+                <View key={index} style={styles.subjectCard}>
+                  <Text style={styles.subjectText}>📖 {subject}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+
           {/* Action Buttons */}
           <View style={styles.actionButtons}>
-            <TouchableOpacity style={styles.primaryButton}>
-              <LinearGradient
-                colors={['#667eea', '#764ba2']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.buttonGradient}
-              >
-                <Text style={styles.primaryButtonText}>Edit Profile</Text>
-              </LinearGradient>
-            </TouchableOpacity>
             
+
             <TouchableOpacity
-  style={styles.secondaryButton}
-  onPress={() => navigation.navigate('StudentRecord')}
->
-  <Text style={styles.secondaryButtonText}>
-    View Academic Records
-  </Text>
-</TouchableOpacity>
-
-
+              style={styles.logoutButton}
+              onPress={async () => {
+                await AsyncStorage.removeItem('studentKey');
+                await AsyncStorage.removeItem('userType');
+                navigation.replace('Login');
+              }}
+            >
+              <Text style={styles.logoutButtonText}>Logout</Text>
+            </TouchableOpacity>
           </View>
         </Animated.View>
       </ScrollView>
@@ -169,6 +251,33 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f7fa',
+  },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#667eea',
+    fontWeight: '600',
+  },
+  errorText: {
+    fontSize: 18,
+    color: '#e53e3e',
+    fontWeight: '600',
+    marginBottom: 20,
+  },
+  retryButton: {
+    backgroundColor: '#667eea',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  retryButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   headerGradient: {
     paddingTop: StatusBar.currentHeight || 40,
@@ -294,6 +403,19 @@ const styles = StyleSheet.create({
     color: '#1a1a2e',
     marginLeft: 30,
   },
+  subjectCard: {
+    backgroundColor: '#f0f4ff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#667eea',
+  },
+  subjectText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1a1a2e',
+  },
   actionButtons: {
     marginTop: 10,
   },
@@ -326,11 +448,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 2,
     borderColor: '#e5e7eb',
+    marginBottom: 12,
   },
   secondaryButtonText: {
     fontSize: 16,
     fontWeight: '600',
     color: '#667eea',
+    letterSpacing: 0.5,
+  },
+  logoutButton: {
+    backgroundColor: '#fee2e2',
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#fecaca',
+  },
+  logoutButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#dc2626',
     letterSpacing: 0.5,
   },
 });

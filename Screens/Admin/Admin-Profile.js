@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,14 +7,56 @@ import {
   TouchableOpacity,
   StatusBar,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
+import { ref, get } from "firebase/database";
+import { db } from "../firebase"; // path may change
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function AdminProfile({ navigation }) {
-  // Dummy admin data (later connect to Firebase)
-  const admin = {
-    name: 'Admin User',
-    branch: 'Computer Engineering',
-    email: 'admin@college.edu',
+  const [admin, setAdmin] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchAdminData();
+  }, []);
+
+  const fetchAdminData = async () => {
+    try {
+      setLoading(true);
+      
+      // Get the stored admin identifier from AsyncStorage (if you stored it during login)
+      // If not stored during login, we'll fetch the first admin or modify login.js to store it
+      const storedAdminId = await AsyncStorage.getItem('adminId');
+      
+      const adminSnap = await get(ref(db, "Admin"));
+      
+      if (adminSnap.exists()) {
+        const admins = adminSnap.val();
+        
+        // If we have a stored admin ID, find that specific admin
+        if (storedAdminId && admins[storedAdminId]) {
+          setAdmin({
+            ...admins[storedAdminId],
+            firebaseKey: storedAdminId,
+          });
+        } else {
+          // Otherwise, get the first admin (or modify this logic as needed)
+          const firstAdminKey = Object.keys(admins)[0];
+          setAdmin({
+            ...admins[firstAdminKey],
+            firebaseKey: firstAdminKey,
+          });
+        }
+      } else {
+        Alert.alert('Error', 'No admin data found');
+      }
+    } catch (error) {
+      console.error("Error fetching admin data:", error);
+      Alert.alert('Error', 'Failed to load admin data');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleLogout = () => {
@@ -26,11 +68,45 @@ export default function AdminProfile({ navigation }) {
         {
           text: 'Logout',
           style: 'destructive',
-          onPress: () => navigation.replace('Login'),
+          onPress: async () => {
+            try {
+              // Clear stored user data
+              await AsyncStorage.removeItem('userType');
+              await AsyncStorage.removeItem('adminId');
+              navigation.replace('Login');
+            } catch (error) {
+              console.error("Error during logout:", error);
+              navigation.replace('Login');
+            }
+          },
         },
       ]
     );
   };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#4f46e5" />
+          <Text style={styles.loadingText}>Loading profile...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!admin) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>Unable to load admin data</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={fetchAdminData}>
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -40,20 +116,24 @@ export default function AdminProfile({ navigation }) {
       <View style={styles.header}>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>
-            {admin.name
-              .split(' ')
-              .map(n => n[0])
-              .join('')}
+            {admin.email
+              ? admin.email.substring(0, 2).toUpperCase()
+              : admin.id
+              ? admin.id.substring(0, 2).toUpperCase()
+              : 'AD'}
           </Text>
         </View>
-        <Text style={styles.name}>{admin.name}</Text>
+        <Text style={styles.name}>
+          {admin.email ? admin.email.split('@')[0] : 'Admin User'}
+        </Text>
         <Text style={styles.role}>Administrator</Text>
       </View>
 
       {/* Profile Details */}
       <View style={styles.card}>
-        <ProfileRow label="Branch" value={admin.branch} />
-        <ProfileRow label="Email" value={admin.email} />
+        <ProfileRow label="Branch" value={admin.branch || 'All Branches'} />
+        <ProfileRow label="Email" value={admin.email || 'N/A'} />
+        <ProfileRow label="Admin ID" value={admin.id || 'N/A'} />
       </View>
 
       {/* Logout Button */}
@@ -81,6 +161,43 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f8fafc',
     paddingHorizontal: 20,
+  },
+
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#64748b',
+  },
+
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  errorText: {
+    fontSize: 16,
+    color: '#dc2626',
+    marginBottom: 16,
+  },
+
+  retryButton: {
+    backgroundColor: '#4f46e5',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+
+  retryText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
   },
 
   header: {

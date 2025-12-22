@@ -1,6 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import LoginScreen from './Screens/Login/login.js';
 
@@ -10,6 +11,7 @@ import AdminClassSectionSelector from './Screens/Admin/Admin-YearSelection.js';
 import StudentList from './Screens/Admin/Student-List.js';
 import StudentAttendanceProfile from './Screens/Admin/Student-Attendance-Profile.js';
 import AdminProfile from './Screens/Admin/Admin-Profile.js';
+import ClassAttendanceRecord from './Screens/Admin/Classattendancerecord.js';
 
 
 // Teacher Screens
@@ -18,7 +20,9 @@ import ClassSectionSelector from './Screens/Teacher/Teacher-Classselection.js';
 import AttendanceQRScreen from './Screens/Teacher/Qr-Generator.js';
 import StudentListScreen from './Screens/Teacher/Teacher-Record-Studentlist.js';
 import StudentRecordTeacher from './Screens/Teacher/Student-Record.js';
-import EditAttendanceScreen from './Screens/Teacher/Editattendancescreen.js'; 
+import EditAttendanceScreen from './Screens/Teacher/Editattendancescreen.js';
+import TeacherProfile from './Screens/Teacher/Teacher-Profile.js';
+
 
 
 // Student Screens
@@ -26,6 +30,7 @@ import Studentdashboard from './Screens/Student/Student-Dashboard.js';
 import AttendanceCircle from './Screens/Student/Student-Record.js';
 import StudentQRScannerScreen from './Screens/Student/Qr-Scanner.js';
 import StudentProfile from './Screens/Student/Student-Profile.js';
+import AttendanceScreen from './Screens/Student/Student-Record.js';
 
 
 
@@ -35,6 +40,7 @@ const Stack = createNativeStackNavigator();
 
 export default function App() {
   return (
+    <SafeAreaProvider>
     <NavigationContainer>
 
       <Stack.Navigator initialRouteName="Login">
@@ -135,6 +141,24 @@ export default function App() {
           options={{ headerShown: false }} 
         />
 
+        <Stack.Screen 
+          name="TeacherProfile" 
+          component={TeacherProfile} 
+          options={{ headerShown: false }} 
+        />
+
+        <Stack.Screen 
+          name="AttendanceScreen" 
+          component={AttendanceScreen} 
+          options={{ headerShown: false }} 
+        />
+
+        <Stack.Screen 
+          name="ClassAttendanceRecord" 
+          component={ClassAttendanceRecord} 
+          options={{ headerShown: false }} 
+        />
+
         
 
       </Stack.Navigator>
@@ -144,5 +168,6 @@ export default function App() {
       <StatusBar style="auto" />
 
     </NavigationContainer>
+    </SafeAreaProvider>
   );
 }

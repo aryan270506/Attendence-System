@@ -3,6 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, Image, StyleSheet, KeyboardAvo
 import { LinearGradient } from 'expo-linear-gradient';
 import { ref, get } from "firebase/database";
 import { db } from "../firebase"; // path may change
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 
 
@@ -13,11 +14,14 @@ export default function LoginScreen({ navigation }) {
 
     const handleLogin = async () => {
   if (!loginId || !password) {
+    console.log("❌ Empty login attempt");
     alert("Please enter Login ID and Password");
     return;
   }
 
   try {
+    console.log("🔍 Login attempt started for:", loginId);
+
     // ================= ADMIN =================
     const adminSnap = await get(ref(db, "Admin"));
     if (adminSnap.exists()) {
@@ -28,6 +32,12 @@ export default function LoginScreen({ navigation }) {
           (admin.id === loginId || admin.email === loginId) &&
           admin.password === password
         ) {
+          console.log("✅ ADMIN logged in:", admin.email || admin.id);
+          
+          // Store admin key in AsyncStorage for profile screen access
+          await AsyncStorage.setItem('adminId', key);
+          await AsyncStorage.setItem('userType', 'admin');
+          
           navigation.replace("AdminDashboard");
           return;
         }
@@ -44,46 +54,63 @@ export default function LoginScreen({ navigation }) {
           (teacher.id === loginId || teacher.email === loginId) &&
           teacher.password === password
         ) {
-          navigation.replace("TeacherDashboard");
+          console.log("✅ TEACHER logged in:", teacher.email || teacher.id);
+          
+          // Store teacher ID in AsyncStorage for use across all screens
+          await AsyncStorage.setItem('teacherId', key);
+          await AsyncStorage.setItem('userType', 'teacher');
+          
+          navigation.replace("TeacherDashboard", {
+            teacherId: key,
+            teacherData: {
+              ...teacher,
+              firebaseKey: key,
+            },
+          });
           return;
         }
       }
     }
 
     // ================= STUDENTS =================
-    // ================= STUDENTS =================
-const studentSnap = await get(ref(db, "students"));
-if (studentSnap.exists()) {
-  const students = studentSnap.val();
-  for (let key in students) {
-    const student = students[key];
+    const studentSnap = await get(ref(db, "students"));
+    if (studentSnap.exists()) {
+      const students = studentSnap.val();
+      for (let key in students) {
+        const student = students[key];
+        if (
+          (student.id === loginId ||
+            student.email === loginId ||
+            student.prn === loginId) &&
+          student.password === password
+        ) {
+          console.log("✅ STUDENT logged in:", student.name || student.prn);
 
-    if (
-      (student.id === loginId ||
-        student.email === loginId ||
-        student.prn === loginId) &&
-      student.password === password
-    ) {
-      // ✅ PASS STUDENT DATA TO DASHBOARD
-      navigation.replace("StudentDashboard", {
-        studentData: {
-          ...student,
-          firebaseKey: key,
-        },
-      });
-      return;
+          // Store student key in AsyncStorage for persistent sessions
+          await AsyncStorage.setItem('studentKey', key);
+          await AsyncStorage.setItem('userType', 'student');
+
+          navigation.replace("StudentDashboard", {
+            studentData: {
+              ...student,
+              firebaseKey: key,
+            },
+          });
+          return;
+        }
+      }
     }
-  }
-}
 
-
+    // ❌ NO MATCH FOUND
+    console.log("❌ Login failed: Invalid credentials for", loginId);
     alert("Invalid credentials ❌");
 
   } catch (error) {
-    console.log("Login Error:", error);
-    alert("Something went wrong");
+    console.error("🔥 Login Error:", error);
+    alert("Something went wrong. Please try again.");
   }
 };
+
 
 
 

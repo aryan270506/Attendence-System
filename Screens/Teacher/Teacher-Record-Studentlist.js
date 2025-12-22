@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,21 +7,79 @@ import {
   StatusBar,
   SafeAreaView,
   TouchableOpacity,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
+import { ref, get } from "firebase/database";
+import { db } from "../firebase"; // Adjust path as needed
 
-const StudentListScreen = ({ navigation }) => {
-  const students = [
-    { id: '1', name: 'Emma Johnson' },
-    { id: '2', name: 'Liam Smith' },
-    { id: '3', name: 'Olivia Brown' },
-    { id: '4', name: 'Noah Davis' },
-    { id: '5', name: 'Ava Wilson' },
-    { id: '6', name: 'Ethan Martinez' },
-    { id: '7', name: 'Sophia Garcia' },
-    { id: '8', name: 'Mason Rodriguez' },
-    { id: '9', name: 'Isabella Lee' },
-    { id: '10', name: 'James Anderson' },
-  ];
+const StudentListScreen = ({ navigation, route }) => {
+  const { className, sectionName } = route.params;
+  
+  const [students, setStudents] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchStudents();
+  }, []);
+
+  const fetchStudents = async () => {
+    try {
+      setLoading(true);
+
+      // Convert className from "1st Year" to number 1
+      const yearNumber = parseInt(className.match(/\d+/)[0]);
+      
+      // Convert sectionName from "Div A" to "A"
+      const division = sectionName.split(' ')[1];
+
+      console.log('📚 Fetching students for:', { year: yearNumber, division });
+
+      // Fetch all students from Firebase
+      const studentsRef = ref(db, 'students');
+      const snapshot = await get(studentsRef);
+
+      if (snapshot.exists()) {
+        const allStudentsData = snapshot.val();
+        
+        // Filter students by year and division
+        const filteredStudents = Object.entries(allStudentsData)
+          .filter(([studentId, studentData]) => {
+            return studentData.year === yearNumber && 
+                   studentData.division === division;
+          })
+          .map(([studentId, studentData]) => ({
+            id: studentData.id || studentId,
+            name: studentData.name || 'Unknown',
+            email: studentData.email || '',
+            prn: studentData.prn || '',
+            division: studentData.division || '',
+            year: studentData.year || '',
+            subjects: studentData.subjects || [],
+          }));
+
+        setStudents(filteredStudents);
+        console.log(`✅ Found ${filteredStudents.length} students`);
+
+        if (filteredStudents.length === 0) {
+          Alert.alert(
+            'No Students Found',
+            `No students found for ${className} - ${sectionName}`,
+            [{ text: 'OK' }]
+          );
+        }
+      } else {
+        console.log('❌ No students data found in Firebase');
+        Alert.alert('Error', 'No students data found');
+      }
+
+    } catch (error) {
+      console.error('❌ Error fetching students:', error);
+      Alert.alert('Error', 'Failed to load students. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const renderStudent = ({ item }) => (
     <TouchableOpacity
@@ -31,6 +89,7 @@ const StudentListScreen = ({ navigation }) => {
         navigation.navigate('StudentRecordTeacher', {
           studentId: item.id,
           studentName: item.name,
+          studentData: item,
         })
       }
     >
@@ -42,16 +101,59 @@ const StudentListScreen = ({ navigation }) => {
 
       <View style={styles.studentInfo}>
         <Text style={styles.studentName}>{item.name}</Text>
+        <Text style={styles.studentDetails}>PRN: {item.prn}</Text>
+        <Text style={styles.studentDetails}>
+          {className} - {sectionName}
+        </Text>
       </View>
     </TouchableOpacity>
   );
+
+  const renderEmptyComponent = () => (
+    <View style={styles.emptyContainer}>
+      <Text style={styles.emptyText}>No students found</Text>
+      <Text style={styles.emptySubtext}>
+        {className} - {sectionName}
+      </Text>
+    </View>
+  );
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#4f46e5" />
+        <View style={styles.header}>
+          <TouchableOpacity 
+            onPress={() => navigation.goBack()}
+            style={styles.backButton}
+          >
+            <Text style={styles.backButtonText}>← Back</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Students</Text>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#4f46e5" />
+          <Text style={styles.loadingText}>Loading students...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#4f46e5" />
 
       <View style={styles.header}>
+        <TouchableOpacity 
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+        >
+          <Text style={styles.backButtonText}>← Back</Text>
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Students</Text>
+        <Text style={styles.headerSubtitle}>
+          {className} - {sectionName}
+        </Text>
       </View>
 
       <FlatList
@@ -60,6 +162,7 @@ const StudentListScreen = ({ navigation }) => {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContainer}
         showsVerticalScrollIndicator={false}
+        ListEmptyComponent={renderEmptyComponent}
       />
     </SafeAreaView>
   );
@@ -77,13 +180,37 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     paddingHorizontal: 16,
   },
+  backButton: {
+    marginBottom: 8,
+  },
+  backButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
   headerTitle: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#ffffff',
   },
+  headerSubtitle: {
+    fontSize: 14,
+    color: '#e0e7ff',
+    marginTop: 4,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#64748b',
+  },
   listContainer: {
     padding: 16,
+    flexGrow: 1,
   },
   studentCard: {
     flexDirection: 'row',
@@ -121,9 +248,25 @@ const styles = StyleSheet.create({
     color: '#1f2937',
     marginBottom: 4,
   },
-  studentGrade: {
+  studentDetails: {
     fontSize: 14,
     color: '#6b7280',
+    marginTop: 2,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 60,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#6b7280',
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#9ca3af',
+    marginTop: 8,
   },
 });
-

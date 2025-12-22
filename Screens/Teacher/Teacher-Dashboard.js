@@ -4,36 +4,24 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { MaterialIcons } from '@expo/vector-icons';
 import ClassSectionSelector from './Teacher-Classselection.js';
 import TeacherRecord from './Teacher-Record.js';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import TeacherProfile from './Teacher-Profile.js';
 
 
 const Tab = createBottomTabNavigator();
 
-const MarkAttendanceScreen = () => (
-  <View style={styles.screen}>
-    <Text style={styles.title}>Mark Attendance</Text>
-  </View>
-);
-
-const RecordsScreen = () => (
-  <View style={styles.screen}>
-    <Text style={styles.title}>Records</Text>
-  </View>
-);
-
-const ProfileScreen = () => (
-  <View style={styles.screen}>
-    <Text style={styles.title}>Profile</Text>
-  </View>
-);
 
 const TeacherDashboard = () => {
   return (
+    <SafeAreaView style={{ flex: 1 }}>
 <Tab.Navigator
   screenOptions={({ route }) => ({
     tabBarIcon: ({ color, size }) => {
       let iconName;
 
       if (route.name === 'Attendance') iconName = 'how-to-reg';
+      else if (route.name === 'AttendanceRecord') iconName = 'assignment';
       else if (route.name === 'Records') iconName = 'folder';
       else iconName = 'person';
 
@@ -45,12 +33,12 @@ const TeacherDashboard = () => {
       backgroundColor: '#FFFFFF',
       borderTopWidth: 1,
       borderTopColor: '#E5E5EA',
-      height: 60,
+      height: 80,
       paddingBottom: 8,
       paddingTop: 8,
     },
     tabBarLabelStyle: {
-      fontSize: 12,
+      fontSize: 10,
       fontWeight: '600',
     },
     headerStyle: {
@@ -61,26 +49,47 @@ const TeacherDashboard = () => {
       fontWeight: 'bold',
       fontSize: 18,
     },
+    tabBarLabelStyle: {
+  fontSize: 11,
+  fontWeight: '600',
+  textAlign: 'center',
+},
+
   })}
 >
-  <Tab.Screen 
-    name="Attendance" 
-    component={ClassSectionSelector}   // ✅ OPEN THIS SCREEN
-    options={{ title: 'Mark Attendance' }}
-  />
+  
+<Tab.Screen 
+  name="Attendance" 
+  component={ClassSectionSelector}
+  options={{
+    title: 'Mark Attendance',
+    tabBarLabel: 'Mark Attendance',   // ✅ FULL NAME
+  }}
+/>
 
-  <Tab.Screen 
-    name="Records" 
-    component={TeacherRecord}
-    options={{ title: 'Student Records' }}
-  />
 
-  <Tab.Screen 
-    name="Profile" 
-    component={ProfileScreen}
-    options={{ title: 'My Profile' }}
-  />
+
+<Tab.Screen 
+  name="Records" 
+  component={TeacherRecord}
+  options={{
+    title: 'Student Records',
+    tabBarLabel: 'Student Records',   // ✅ FULL NAME
+  }}
+/>
+
+<Tab.Screen 
+  name="Profile" 
+  component={TeacherProfile}
+  options={{
+    title: 'My Profile',
+    tabBarLabel: 'My Profile',        // ✅ FULL NAME
+  }}
+/>
+
+
 </Tab.Navigator>
+</SafeAreaView>
 
   );
 };
@@ -97,6 +106,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
   },
+ tabBarLabelStyle: {
+  fontSize: 10,
+  fontWeight: '600',
+  textAlign: 'center',
+},
+
 });
 
 export default TeacherDashboard;

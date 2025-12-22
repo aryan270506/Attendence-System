@@ -4,6 +4,7 @@ import { View, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons'; // Use Expo icons
 import AdminClassSectionSelector from './Admin-YearSelection.js';
 import AdminProfile from './Admin-Profile.js';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 
 
@@ -13,6 +14,7 @@ const Tab = createBottomTabNavigator();
 
 const AdminDashboard = () => {
   return (
+    <SafeAreaView style={{ flex: 1 }}>
     <Tab.Navigator
       screenOptions={({ route }) => ({
         tabBarIcon: ({ focused, color, size }) => {
@@ -50,6 +52,7 @@ const AdminDashboard = () => {
       <Tab.Screen name="Records" component={AdminClassSectionSelector} />
       <Tab.Screen name="Profile" component={AdminProfile} />
     </Tab.Navigator>
+    </SafeAreaView>
   );
 };
 

@@ -1,17 +1,14 @@
-import React, { useEffect, useState } from "react";
-import { ScrollView, View, Text, StyleSheet, ActivityIndicator, Alert } from "react-native";
-import Svg, { Circle } from "react-native-svg";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { ref, get } from "firebase/database";
-import { db } from "../firebase";
-import api from "../../src/utils/axios";
+// AttendanceScreen.js - Complete Component
+import React, { useState } from 'react';
+import { ScrollView, View, Text, StyleSheet } from 'react-native';
+import Svg, { Circle } from 'react-native-svg';
 
-/* ================= CIRCLE ================= */
+// Circular Progress Component
 const AttendanceCircle = ({ percentage, size = 120 }) => {
   const getColor = () => {
-    if (percentage < 60) return "#EF4444";
-    if (percentage < 80) return "#F59E0B";
-    return "#10B981";
+    if (percentage < 60) return '#EF4444';
+    if (percentage < 80) return '#F59E0B';
+    return '#10B981';
   };
 
   const radius = (size - 12) / 2;
@@ -21,7 +18,14 @@ const AttendanceCircle = ({ percentage, size = 120 }) => {
   return (
     <View style={[styles.circleContainer, { width: size, height: size }]}>
       <Svg width={size} height={size}>
-        <Circle cx={size / 2} cy={size / 2} r={radius} stroke="#E5E7EB" strokeWidth="12" fill="none" />
+        <Circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke="#E5E7EB"
+          strokeWidth="12"
+          fill="none"
+        />
         <Circle
           cx={size / 2}
           cy={size / 2}
@@ -45,10 +49,10 @@ const AttendanceCircle = ({ percentage, size = 120 }) => {
   );
 };
 
-/* ================= SUBJECT CARD ================= */
+// Subject Card Component
 const SubjectCard = ({ subject, present, total }) => {
-  const percentage = total === 0 ? 0 : Math.round((present / total) * 100);
-
+  const percentage = Math.round((present / total) * 100);
+  
   return (
     <View style={styles.subjectCard}>
       <View style={styles.subjectInfo}>
@@ -62,76 +66,26 @@ const SubjectCard = ({ subject, present, total }) => {
   );
 };
 
-/* ================= MAIN SCREEN ================= */
+// Main Attendance Screen
 export default function AttendanceScreen() {
-  const [subjects, setSubjects] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [subjects] = useState([
+    { id: 1, name: 'Mathematics', present: 42, total: 50 },
+    { id: 2, name: 'Physics', present: 38, total: 45 },
+    { id: 3, name: 'Chemistry', present: 35, total: 48 },
+    { id: 4, name: 'English', present: 28, total: 40 },
+    { id: 5, name: 'Computer Science', present: 44, total: 46 },
+    { id: 6, name: 'Biology', present: 25, total: 42 }
+  ]);
 
-  useEffect(() => {
-    loadAttendance();
-  }, []);
+  const calculateOverallAttendance = () => {
+    const totalPresent = subjects.reduce((sum, sub) => sum + sub.present, 0);
+    const totalClasses = subjects.reduce((sum, sub) => sum + sub.total, 0);
+    return Math.round((totalPresent / totalClasses) * 100);
+  };
 
-  const loadAttendance = async () => {
-  try {
-    setLoading(true);
-
-    const studentId = await AsyncStorage.getItem("studentId");
-    if (!studentId) return;
-
-    // 🔹 1. FETCH STUDENT FROM FIREBASE
-    const snap = await get(ref(db, `students/${studentId}`));
-    if (!snap.exists()) return;
-
-    const { year, division, subjects: firebaseSubjects } = snap.val();
-
-    // 🔹 2. PREPARE DEFAULT SUBJECT STRUCTURE (0 / 0)
-    const baseSubjects = firebaseSubjects.map((sub) => ({
-      subject: sub,
-      present: 0,
-      total: 0,
-    }));
-
-    // 🔹 3. FETCH ATTENDANCE FROM MONGO
-    const res = await api.post("/api/attendance/student-summary", {
-      studentId,
-      year,
-      division,
-      subjects: firebaseSubjects,
-    });
-
-    const mongoData = res.data.subjects || [];
-
-    // 🔹 4. MERGE FIREBASE + MONGO
-    const merged = baseSubjects.map((fs) => {
-      const match = mongoData.find((m) => m.subject === fs.subject);
-      return match ? match : fs;
-    });
-
-    setSubjects(merged);
-  } catch (err) {
-    console.error("Attendance error:", err);
-    Alert.alert("Error", "Failed to load attendance");
-  } finally {
-    setLoading(false);
-  }
-};
-
-
-  /* ================= OVERALL ================= */
-  const totalPresent = subjects.reduce((s, x) => s + x.present, 0);
-  const totalClasses = subjects.reduce((s, x) => s + x.total, 0);
-  const overallAttendance =
-    totalClasses === 0 ? 0 : Math.round((totalPresent / totalClasses) * 100);
-
-  /* ================= UI ================= */
-  if (loading) {
-    return (
-      <View style={styles.loader}>
-        <ActivityIndicator size="large" color="#10B981" />
-        <Text>Loading attendance...</Text>
-      </View>
-    );
-  }
+  const overallAttendance = calculateOverallAttendance();
+  const totalPresent = subjects.reduce((sum, sub) => sum + sub.present, 0);
+  const totalClasses = subjects.reduce((sum, sub) => sum + sub.total, 0);
 
   return (
     <ScrollView style={styles.container}>
@@ -140,7 +94,7 @@ export default function AttendanceScreen() {
         <Text style={styles.headerTitle}>Attendance Overview</Text>
       </View>
 
-      {/* Overall */}
+      {/* Overall Attendance Section */}
       <View style={styles.overallSection}>
         <Text style={styles.overallLabel}>Overall Attendance</Text>
         <AttendanceCircle percentage={overallAttendance} size={160} />
@@ -149,15 +103,15 @@ export default function AttendanceScreen() {
         </Text>
       </View>
 
-      {/* Subject-wise */}
+      {/* Subject-wise Attendance */}
       <View style={styles.subjectsSection}>
         <Text style={styles.sectionTitle}>Subject-wise Attendance</Text>
-        {subjects.map((sub) => (
+        {subjects.map((subject) => (
           <SubjectCard
-            key={sub.subject}
-            subject={sub.subject}
-            present={sub.present}
-            total={sub.total}
+            key={subject.id}
+            subject={subject.name}
+            present={subject.present}
+            total={subject.total}
           />
         ))}
       </View>

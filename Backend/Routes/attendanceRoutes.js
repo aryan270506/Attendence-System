@@ -4,10 +4,16 @@ const AttendanceRecord = require("../Modals/AttendanceRecord");
 
 const router = express.Router();
 
-/**
- * 🧑‍🏫 CREATE SESSION
- * Triggered when teacher presses "Confirm Selection"
- */
+/* =====================================================
+   🟢 TEST ROUTE
+===================================================== */
+router.get("/test", (req, res) => {
+  res.json({ msg: "Attendance routes working ✅" });
+});
+
+/* =====================================================
+   🟢 CREATE ATTENDANCE SESSION (TEACHER)
+===================================================== */
 router.post("/session/create", async (req, res) => {
   try {
     const { teacherId, year, division, subject } = req.body;
@@ -16,49 +22,71 @@ router.post("/session/create", async (req, res) => {
       return res.status(400).json({ msg: "Missing required fields" });
     }
 
-    const sessionId = `SES_${Date.now()}_${year}${division}_${subject}`;
+    const sessionId = `S_${Date.now()}_${Math.random()
+      .toString(36)
+      .substring(2, 8)}`;
 
-    await AttendanceSession.create({
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    const session = await AttendanceSession.create({
       sessionId,
       teacherId,
       year,
       division,
       subject,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes
+      expiresAt,
     });
 
-    console.log(`📘 Session created: ${sessionId}`);
+    console.log("📘 Session created:", sessionId);
 
-    res.json({ sessionId });
+    res.json({
+      sessionId,
+      expiresAt,
+    });
   } catch (err) {
     console.error("❌ Session creation failed:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-/**
- * 📲 MARK ATTENDANCE
- * Triggered when student scans QR
- */
+/* =====================================================
+   🟢 MARK STUDENT PRESENT (QR SCAN)
+===================================================== */
 router.post("/mark", async (req, res) => {
   try {
     const { sessionId, studentId } = req.body;
 
+    if (!sessionId || !studentId) {
+      return res.status(400).json({ msg: "Missing sessionId or studentId" });
+    }
+
+    // 1️⃣ Validate session
     const session = await AttendanceSession.findOne({ sessionId });
     if (!session) {
-      return res.status(400).json({ msg: "Invalid or deleted session" });
+      return res.status(404).json({ msg: "Session not found or deleted" });
     }
 
     if (Date.now() > session.expiresAt) {
       return res.status(400).json({ msg: "Session expired" });
     }
 
-    // 🔥 ADD STUDENT TO SESSION RECORD
+    // 2️⃣ HARD DUPLICATE CHECK (student-level)
+    const alreadyMarked = await AttendanceRecord.findOne({
+      sessionId,
+      "presentStudents.studentId": studentId,
+    });
+
+    if (alreadyMarked) {
+      return res.status(409).json({
+        msg: "QR already scanned. Attendance already marked.",
+      });
+    }
+
+    // 3️⃣ SAFE INSERT (only once)
     await AttendanceRecord.updateOne(
       { sessionId },
       {
-        $addToSet: {
+        $push: {
           presentStudents: {
             studentId,
             scannedAt: new Date(),
@@ -68,34 +96,212 @@ router.post("/mark", async (req, res) => {
       { upsert: true }
     );
 
-    console.log(`🧑‍🎓 Present marked → ${studentId}`);
+    console.log(`🧑‍🎓 Attendance marked → ${studentId}`);
 
-    res.json({ msg: "Attendance marked" });
+    res.json({ msg: "Attendance marked successfully" });
   } catch (err) {
-    console.error("❌ Attendance mark failed:", err);
-    res.status(500).json({ error: err.message });
+    console.error("❌ Attendance mark error:", err);
+    res.status(500).json({ msg: "Server error" });
   }
 });
 
 
-/**
- * ❌ DELETE SESSION
- * Triggered when teacher presses "Delete Class Attendance"
- */
-router.delete("/session/delete", async (req, res) => {
-  try {
-    const { sessionId } = req.body;
 
-    if (!sessionId) {
-      return res.status(400).json({ msg: "sessionId required" });
+/* =====================================================
+   🟢 GET PRESENT COUNT (LIVE / RECENT CLASSES)
+===================================================== */
+router.get("/session/:sessionId/present", async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    const record = await AttendanceRecord.findOne({ sessionId });
+
+    const presentCount = record ? record.presentStudents.length : 0;
+
+    res.json({
+      sessionId,
+      presentCount,
+      students: record?.presentStudents || [],
+    });
+  } catch (err) {
+    console.error("❌ Fetch present count failed:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 🔍 Get present students for a session
+router.get("/session/:sessionId", async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    const record = await AttendanceRecord.findOne({ sessionId });
+
+    if (!record) {
+      return res.json({ presentStudents: [] });
     }
 
-    await AttendanceRecord.deleteMany({ sessionId });
+    const presentStudents = record.presentStudents.map(
+      s => s.studentId
+    );
+
+    res.json({ presentStudents });
+  } catch (err) {
+    console.error("❌ Fetch session attendance failed:", err);
+    res.status(500).json({ msg: "Server error" });
+  }
+});
+
+
+/* =====================================================
+   🟢 GET RECENT SESSIONS FOR TEACHER (LAST 1 HOUR)
+===================================================== */
+router.get("/teacher/:teacherId/recent", async (req, res) => {
+  try {
+    const { teacherId } = req.params;
+
+    // Calculate 1 hour ago timestamp
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+
+    // Find all sessions created in the last hour for this teacher
+    const sessions = await AttendanceSession.find({
+      teacherId,
+      createdAt: { $gte: oneHourAgo },
+    }).sort({ createdAt: -1 }); // newest first
+
+    // For each session, get the present count
+    const sessionsWithCount = await Promise.all(
+      sessions.map(async (session) => {
+        const record = await AttendanceRecord.findOne({
+          sessionId: session.sessionId,
+        });
+
+        return {
+          sessionId: session.sessionId,
+          year: session.year,
+          division: session.division,
+          subject: session.subject,
+          createdAt: session.createdAt,
+          expiresAt: session.expiresAt,
+          presentCount: record ? record.presentStudents.length : 0,
+        };
+      })
+    );
+
+    console.log(`📋 Found ${sessionsWithCount.length} recent sessions for teacher ${teacherId}`);
+
+    res.json({
+      sessions: sessionsWithCount,
+    });
+  } catch (err) {
+    console.error("❌ Fetch recent sessions failed:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+router.get("/session/:sessionId", async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    const record = await AttendanceRecord.findOne({ sessionId });
+
+    if (!record) {
+      return res.json({ presentStudents: [] });
+    }
+
+    const presentStudents = record.presentStudents.map(
+      s => s.studentId
+    );
+
+    res.json({ presentStudents });
+  } catch (err) {
+    console.error("❌ Fetch session attendance failed:", err);
+    res.status(500).json({ msg: "Server error" });
+  }
+});
+router.post("/manual/add", async (req, res) => {
+  const { sessionId, studentId } = req.body;
+
+  await AttendanceRecord.updateOne(
+    { sessionId },
+    {
+      $addToSet: {
+        presentStudents: {
+          studentId,
+          scannedAt: new Date(),
+        },
+      },
+    },
+    { upsert: true }
+  );
+
+  res.json({ msg: "Student marked present" });
+});
+router.post("/manual/remove", async (req, res) => {
+  const { sessionId, studentId } = req.body;
+
+  await AttendanceRecord.updateOne(
+    { sessionId },
+    {
+      $pull: {
+        presentStudents: { studentId },
+      },
+    }
+  );
+
+  res.json({ msg: "Student marked absent" });
+});
+router.post("/manual/mark-all-present", async (req, res) => {
+  try {
+    const { sessionId, studentIds } = req.body;
+
+    if (!sessionId || !studentIds?.length) {
+      return res.status(400).json({ msg: "Invalid data" });
+    }
+
+    const presentStudents = studentIds.map(id => ({
+      studentId: id,
+      scannedAt: new Date(),
+    }));
+
+    await AttendanceRecord.updateOne(
+      { sessionId },
+      { $set: { presentStudents } },
+      { upsert: true }
+    );
+
+    console.log(`✅ Marked ALL present → ${studentIds.length}`);
+
+    res.json({ msg: "All students marked present" });
+  } catch (err) {
+    console.error("❌ Mark all present failed:", err);
+    res.status(500).json({ msg: "Server error" });
+  }
+});
+
+router.post("/manual/mark-all-absent", async (req, res) => {
+  const { sessionId } = req.body;
+
+  await AttendanceRecord.updateOne(
+    { sessionId },
+    { $set: { presentStudents: [] } }
+  );
+
+  res.json({ msg: "All students marked absent" });
+});
+
+
+/* =====================================================
+   🟢 DELETE SESSION (TEACHER DELETES CLASS)
+===================================================== */
+router.delete("/session/:sessionId", async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
     await AttendanceSession.deleteOne({ sessionId });
+    await AttendanceRecord.deleteOne({ sessionId });
 
-    console.log(`❌ Session deleted completely: ${sessionId}`);
+    console.log("🗑️ Session deleted:", sessionId);
 
-    res.json({ msg: "Attendance session deleted successfully" });
+    res.json({ msg: "Session deleted successfully" });
   } catch (err) {
     console.error("❌ Session delete failed:", err);
     res.status(500).json({ error: err.message });

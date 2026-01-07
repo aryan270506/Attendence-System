@@ -118,60 +118,52 @@ useFocusEffect(
 }, [selectedClass]);
 
 
-  // Load recent classes from AsyncStorage
-  const ONE_HOUR = 60 * 60 * 1000;
-
+  // Load recent classes from database (last 1 hour)
 const loadRecentClasses = async () => {
   try {
-    const stored = await AsyncStorage.getItem("recentClasses");
-    if (!stored) return;
+    const teacherId = await AsyncStorage.getItem("teacherId");
+    console.log("📱 Loading recent classes for teacher:", teacherId);
+    
+    if (!teacherId) {
+      console.log("⚠️ No teacherId found");
+      return;
+    }
 
-    const parsed = JSON.parse(stored);
-    const now = Date.now();
+    // 🔥 FETCH FROM DATABASE INSTEAD OF ASYNCSTORAGE
+    console.log(`🔍 Fetching: /api/attendance/teacher/${teacherId}/recent`);
+    const response = await api.get(`/api/attendance/teacher/${teacherId}/recent`);
+    console.log("✅ Response received:", response.data);
+    
+    const sessions = response.data.sessions;
 
-    // ✅ keep only classes within 1 hour
-    const validRecents = parsed.filter(item => {
-      const timeDiff = now - new Date(item.timestamp).getTime();
-      return timeDiff <= ONE_HOUR;
+    // Convert to display format
+    const formatted = sessions.map(session => {
+      // Convert year number to label (1 → "1st Year")
+      const yearLabel =
+        session.year === 1 ? "1st Year" :
+        session.year === 2 ? "2nd Year" :
+        session.year === 3 ? "3rd Year" : "4th Year";
+
+      return {
+        sessionId: session.sessionId,
+        className: yearLabel,
+        sectionName: `Div ${session.division}`,
+        subjectName: session.subject,
+        timestamp: session.createdAt,
+        presentCount: session.presentCount,
+      };
     });
 
-    setRecentClasses(validRecents);
-
-    // 🔥 cleanup expired ones from storage
-    await AsyncStorage.setItem(
-      "recentClasses",
-      JSON.stringify(validRecents)
-    );
-
-  } catch (error) {
-    console.log("Error loading recent classes:", error);
+    console.log("📊 Formatted recent classes:", formatted);
+    setRecentClasses(formatted);
+  } catch (err) {
+    console.log("❌ Error loading recent classes:", err.message);
+    console.log("Error details:", err.response?.data || err);
   }
 };
 
 
-  // Save a class-section combination to recents
-  const saveToRecents = async (className, sectionName) => {
-    try {
-      const newEntry = {
-        className,
-        sectionName,
-        timestamp: new Date().toISOString(),
-      };
 
-      // Remove duplicate if exists
-      const filtered = recentClasses.filter(
-        item => !(item.className === className && item.sectionName === sectionName)
-      );
-
-      // Add to beginning and keep only last 6
-      const updated = [newEntry, ...filtered].slice(0, 6);
-      
-      setRecentClasses(updated);
-      await AsyncStorage.setItem('recentClasses', JSON.stringify(updated));
-    } catch (error) {
-      console.log('Error saving to recents:', error);
-    }
-  };
 
 const handleSubmit = async () => {
   if (!selectedClass || !selectedSection || !selectedSubject) {
@@ -226,10 +218,12 @@ const handleSubmit = async () => {
 
 
 
- const handleEditAttendance = (className, sectionName, timestamp) => {
+ const handleEditAttendance = (item) => {
   const now = Date.now();
-  const diff = now - new Date(timestamp).getTime();
+  const createdTime = new Date(item.timestamp).getTime();
+  const diff = now - createdTime;
 
+  // Check if more than 1 hour has passed
   if (diff > 60 * 60 * 1000) {
     Alert.alert(
       "Edit Locked",
@@ -240,9 +234,11 @@ const handleSubmit = async () => {
   }
 
   navigation.navigate("EditAttendanceScreen", {
-    className,
-    sectionName,
-    date: new Date().toLocaleDateString("en-IN", {
+    sessionId: item.sessionId,
+    className: item.className,
+    sectionName: item.sectionName,
+    subjectName: item.subjectName,
+    date: new Date(item.timestamp).toLocaleDateString("en-IN", {
       day: "2-digit",
       month: "short",
       year: "numeric",
@@ -399,14 +395,19 @@ const handleSubmit = async () => {
                   <TouchableOpacity
                     key={index}
                     style={styles.recentCard}
-                    onPress={() => handleEditAttendance(item.className, item.sectionName)}
+                    onPress={() => handleEditAttendance(item)}
                     activeOpacity={0.7}
                   >
                     <View style={styles.recentCardContent}>
-                      <Text style={styles.recentClassName}>{item.className}</Text>
-                      <Text style={styles.recentSectionName}>
-                        {item.sectionName.split(" ")[1]}
-                      </Text>
+                      <Text style={styles.recentClassName}>{item.className} </Text>
+<Text style={styles.recentSectionName}>
+  {item.sectionName.split(" ")[1]} Div 
+</Text>
+
+<Text style={{ color: "#16a34a", fontWeight: "600" }}>
+  Present: {item.presentCount}
+</Text>
+
                     </View>
                     <Text style={styles.editLabel}>Edit</Text>
                   </TouchableOpacity>

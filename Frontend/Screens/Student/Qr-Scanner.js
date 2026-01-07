@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from "react-native";
+import React, { useState, useEffect, useRef } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Animated } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import api from "../../src/utils/axios"; 
+
 
 
 export default function StudentQRScannerScreen() {
@@ -14,33 +16,54 @@ export default function StudentQRScannerScreen() {
   const [studentDivision, setStudentDivision] = useState(null);
   const [studentSubject, setStudentSubject] = useState(null);
 
-
+  // Animation reference for scanning line
+  const scanAnimation = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-  requestPermission();
-}, []);
+    requestPermission();
+  }, []);
+
+  useEffect(() => {
+    const loadStudentInfo = async () => {
+      const year = await AsyncStorage.getItem("studentYear");
+      const division = await AsyncStorage.getItem("studentDivision");
+      const subject = await AsyncStorage.getItem("currentSubject");
+
+      setStudentYear(year);
+      setStudentDivision(division);
+      setStudentSubject(subject);
+    };
+
+    loadStudentInfo();
+  }, []);
+
+  // Animate scanning line
+  useEffect(() => {
+    if (scanning && !scanned) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(scanAnimation, {
+            toValue: 1,
+            duration: 2000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(scanAnimation, {
+            toValue: 0,
+            duration: 2000,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    } else {
+      scanAnimation.setValue(0);
+    }
+  }, [scanning, scanned]);
+
+  const scanLockRef = useRef(false);
 
 
-
-  
-
- useEffect(() => {
-  const loadStudentInfo = async () => {
-    const year = await AsyncStorage.getItem("studentYear");
-    const division = await AsyncStorage.getItem("studentDivision");
-    const subject = await AsyncStorage.getItem("currentSubject"); // 🔥 ADD THIS
-
-    setStudentYear(year);
-    setStudentDivision(division);
-    setStudentSubject(subject);
-  };
-
-  loadStudentInfo();
-}, []);
-
-
-const handleBarCodeScanned = ({ data }) => {
-  if (scanned) return;
+const handleBarCodeScanned = async ({ data }) => {
+  if (scanned) return; // 🔒 HARD LOCK
 
   setScanned(true);
   setScanning(false);
@@ -49,116 +72,111 @@ const handleBarCodeScanned = ({ data }) => {
 
   try {
     payload = JSON.parse(data);
-  } catch (e) {
-    return showInvalidQR();
+  } catch {
+    showInvalidQR();
+    return;
   }
 
-  // 1️⃣ Check QR type
-  if (payload.type !== "ATTENDANCE_QR") {
-    return showInvalidQR();
+  // ✅ Validate QR
+  if (
+    payload.type !== "ATTENDANCE_QR" ||
+    !payload.sessionId ||
+    !payload.issuedAt
+  ) {
+    showInvalidQR();
+    return;
   }
 
-  // 2️⃣ Check teacherId exists
-  if (!payload.teacherId) {
-    return showInvalidQR();
-  }
-
-  // 4️⃣ Match student year
-// ✅ Match student year
-if (String(payload.year) !== String(studentYear)) {
-  Alert.alert(
-    "Wrong Class ❌",
-    "This QR is not for your class.",
-    [{ text: "Scan Again", onPress: resetScanner }]
-  );
-  return;
-}
-
-
-// 5️⃣ Match student division
-if (String(payload.division) !== String(studentDivision)) {
-  Alert.alert(
-    "Wrong Division ❌",
-    "This QR is not for your division.",
-    [{ text: "Scan Again", onPress: resetScanner }]
-  );
-  return;
-}
-
-console.log("QR Subject:", payload.subject);
-console.log("Student Subject:", studentSubject);
-
-// 6️⃣ Match subject
-// 6️⃣ Check subject exists in QR
-if (!payload.subject) {
-  Alert.alert(
-    "Invalid QR ❌",
-    "Subject information missing in QR.",
-    [{ text: "Scan Again", onPress: resetScanner }]
-  );
-  return;
-}
-
-
-
-
-  // 3️⃣ Check QR expiry (10 seconds validity)
-  const now = Date.now();
-  if (now - payload.issuedAt > 10000) {
+  // ⏰ Expiry check
+  if (Date.now() - payload.issuedAt > 10_000) {
     Alert.alert(
       "QR Expired ⏰",
-      "This QR code has expired. Please scan the latest QR shown by your teacher.",
+      "Please scan the latest QR",
       [{ text: "Scan Again", onPress: resetScanner }]
     );
     return;
   }
 
-  // ✅ VALID QR
-Alert.alert(
-  "Attendance Marked ✅",
-  `Class: ${payload.class}
-Division: ${payload.division}
-Subject: ${payload.subject}`,
-  [
-    {
-      text: "OK",
-    },
-  ]
-);
+  try {
+    const studentId = await AsyncStorage.getItem("studentId");
 
+    if (!studentId) {
+      Alert.alert(
+        "Session Error ❌",
+        "Student ID missing. Please login again.",
+        [{ text: "Login", onPress: () => navigation.replace("Login") }]
+      );
+      return;
+    }
+
+    await api.post("/api/attendance/mark", {
+      sessionId: payload.sessionId,
+      studentId,
+    });
+
+    Alert.alert(
+      "Attendance Marked ✅",
+      "You are marked present for this class.",
+      [{ text: "OK" }]
+    );
+
+  } catch (err) {
+    if (err?.response?.status === 409) {
+      Alert.alert(
+        "Already Marked ⚠️",
+        "You have already scanned this QR.",
+        [{ text: "OK" }]
+      );
+    } else {
+      Alert.alert(
+        "Attendance Failed ❌",
+        err?.response?.data?.msg || "Try again",
+        [{ text: "Scan Again", onPress: resetScanner }]
+      );
+    }
+  }
 };
 
 
-const resetScanner = () => {
+
+
+
+  const resetScanner = () => {
+  scanLockRef.current = false;
   setScanned(false);
   setScanning(true);
 };
 
-const showInvalidQR = () => {
-  Alert.alert(
-    "Invalid QR ❌",
-    "This QR is not generated by your teacher.",
-    [{ text: "Try Again", onPress: resetScanner }]
-  );
-};
 
+  const showInvalidQR = () => {
+    Alert.alert(
+      "Invalid QR ❌",
+      "This QR is not generated by your teacher.",
+      [{ text: "Try Again", onPress: resetScanner }]
+    );
+  };
 
-if (!permission) {
-  return (
-    <View style={styles.container}>
-      <Text>Requesting camera permission...</Text>
-    </View>
-  );
-}
+  if (!permission) {
+    return (
+      <View style={styles.container}>
+        <Text>Requesting camera permission...</Text>
+      </View>
+    );
+  }
 
-if (!permission.granted) {
-  return (
-    <View style={styles.container}>
-      <Text>No access to camera</Text>
-    </View>
-  );
-}
+  if (!permission.granted) {
+    return (
+      <View style={styles.container}>
+        <Text>No access to camera</Text>
+      </View>
+    );
+  }
 
+  // Calculate the animated position (moves from top to bottom of the frame)
+  const scanLineTranslateY = scanAnimation.interpolate({
+    inputRange: [0, 1],
+    outputRange: [25, 200], // 220 is roughly the height of the scanner frame minus the line height
+  });
 
   return (
     <View style={styles.container}>
@@ -181,13 +199,12 @@ if (!permission.granted) {
       {/* Camera View */}
       <View style={styles.cameraContainer}>
         <CameraView
-  style={styles.camera}
-  barcodeScannerSettings={{
-    barcodeTypes: ["qr"],
-  }}
-  onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
-/>
-
+          style={styles.camera}
+          barcodeScannerSettings={{
+            barcodeTypes: ["qr"],
+          }}
+          onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
+        />
 
         {/* Scanner Frame Overlay */}
         <View style={styles.overlay}>
@@ -196,13 +213,24 @@ if (!permission.granted) {
             <View style={[styles.corner, styles.topRight]} />
             <View style={[styles.corner, styles.bottomLeft]} />
             <View style={[styles.corner, styles.bottomRight]} />
+
+            {/* Animated Scanning Line */}
+            {scanning && !scanned && (
+              <Animated.View
+                style={[
+                  styles.scanLine,
+                  {
+                    transform: [{ translateY: scanLineTranslateY }],
+                  },
+                ]}
+              />
+            )}
           </View>
         </View>
 
         {/* Scanning Indicator */}
         {scanning && !scanned && (
           <View style={styles.scanningIndicator}>
-            <View style={styles.scanLine} />
             <Text style={styles.scanningText}>Scanning...</Text>
           </View>
         )}
@@ -328,17 +356,23 @@ const styles = StyleSheet.create({
     borderBottomWidth: 4,
     borderRightWidth: 4,
   },
+  scanLine: {
+  position: "absolute",
+  left: 25,      // ← Add this (left padding)
+  right: 25,     // ← Add this (right padding)
+  height: 3,
+  backgroundColor: "#4CAF50",
+  shadowColor: "#4CAF50",
+  shadowOffset: { width: 0, height: 0 },
+  shadowOpacity: 0.8,
+  shadowRadius: 10,
+  elevation: 5,
+},
   scanningIndicator: {
     position: "absolute",
     bottom: 30,
     alignSelf: "center",
     alignItems: "center",
-  },
-  scanLine: {
-    width: 200,
-    height: 2,
-    backgroundColor: "#4CAF50",
-    marginBottom: 10,
   },
   scanningText: {
     color: "#fff",

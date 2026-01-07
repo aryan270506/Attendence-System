@@ -8,8 +8,7 @@ const attendanceSessionSchema = new mongoose.Schema({
   subject: String,
   createdAt: { type: Date, default: Date.now },
   expiresAt: Date,
-  isFinalized: { type: Boolean, default: false },
-  isDeleted: { type: Boolean, default: false },
+
 });
 
 module.exports = mongoose.model(

@@ -118,10 +118,12 @@ if (studentSnap.exists()) {
     ) {
       console.log("✅ STUDENT logged in:", student.name || student.prn);
 
-      await AsyncStorage.setItem("studentKey", key);
-      await AsyncStorage.setItem("userType", "student");
-      await AsyncStorage.setItem("studentYear", String(student.year));
-      await AsyncStorage.setItem("studentDivision", String(student.division));
+await AsyncStorage.setItem("studentKey", key);
+await AsyncStorage.setItem("studentId", student.id); // 🔥 REQUIRED
+await AsyncStorage.setItem("userType", "student");
+await AsyncStorage.setItem("studentYear", String(student.year));
+await AsyncStorage.setItem("studentDivision", String(student.division));
+
 
       // 🔌 CONNECT SOCKET HERE
       connectSocket({

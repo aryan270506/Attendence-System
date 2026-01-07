@@ -17,6 +17,7 @@ const TeacherDashboard = () => {
     <SafeAreaView style={{ flex: 1 }}>
 <Tab.Navigator
   screenOptions={({ route }) => ({
+    headerShown: false,
     tabBarIcon: ({ color, size }) => {
       let iconName;
 

@@ -50,9 +50,7 @@ const handleSaveAttendance = async () => {
         onPress: async () => {
           try {
             // 🔥 FINALIZE SESSION IN BACKEND
-            await api.post("/api/attendance/session/finalize", {
-              sessionId,
-            });
+            
 
             // 🔥 Save to recents (UI feature)
             await saveToRecents(className, sectionName);

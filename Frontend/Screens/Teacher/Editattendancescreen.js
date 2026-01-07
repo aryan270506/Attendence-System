@@ -8,79 +8,231 @@ import {
   StatusBar,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
+import { ref, get } from "firebase/database";
+import { db } from "../firebase";
+import api from "../../src/utils/axios";
 
 export default function EditAttendanceScreen({ route, navigation }) {
-  const { className, sectionName, date } = route.params;
+  const { sessionId, className, sectionName, date } = route.params;
   
-  // Mock student data - Replace this with your actual data source
-  const [students, setStudents] = useState([
-    { id: 1, rollNo: '01', name: 'Aarav Sharma', status: 'present' },
-    { id: 2, rollNo: '02', name: 'Diya Patel', status: 'present' },
-    { id: 3, rollNo: '03', name: 'Arjun Verma', status: 'absent' },
-    { id: 4, rollNo: '04', name: 'Ananya Singh', status: 'present' },
-    { id: 5, rollNo: '05', name: 'Vihaan Kumar', status: 'present' },
-    { id: 6, rollNo: '06', name: 'Saanvi Gupta', status: 'absent' },
-    { id: 7, rollNo: '07', name: 'Reyansh Reddy', status: 'present' },
-    { id: 8, rollNo: '08', name: 'Aadhya Joshi', status: 'present' },
-    { id: 9, rollNo: '09', name: 'Ishaan Mehta', status: 'present' },
-    { id: 10, rollNo: '10', name: 'Myra Desai', status: 'absent' },
-  ]);
+  const [students, setStudents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState(false);
 
-  const toggleAttendance = (studentId) => {
-    setStudents(prevStudents =>
-      prevStudents.map(student =>
-        student.id === studentId
-          ? { ...student, status: student.status === 'present' ? 'absent' : 'present' }
-          : student
-      )
-    );
+  // Fetch students from Firebase based on year and division
+  const fetchStudentsFromFirebase = async (year, division) => {
+    try {
+      const snapshot = await get(ref(db, "students"));
+
+      if (!snapshot.exists()) return [];
+
+      const data = snapshot.val();
+
+      // Filter students by year + division
+      return Object.entries(data)
+        .map(([key, student]) => ({
+          ...student,
+          studentId: student.id || key, // Ensure studentId exists
+        }))
+        .filter(student =>
+          String(student.year) === String(year) &&
+          student.division === division
+        );
+    } catch (error) {
+      console.error("Error fetching students from Firebase:", error);
+      return [];
+    }
   };
 
+  // Load attendance data on mount
+  useEffect(() => {
+    loadAttendance();
+  }, []);
+
+  const loadAttendance = async () => {
+    try {
+      setLoading(true);
+
+      // Extract year from className (e.g., "3rd Year" -> 3)
+      const year =
+        className.startsWith("1") ? 1 :
+        className.startsWith("2") ? 2 :
+        className.startsWith("3") ? 3 : 4;
+
+      // Extract division from sectionName (e.g., "Section A" -> "A")
+      const division = sectionName.split(" ")[1] || sectionName;
+
+      console.log(`Loading attendance for Year ${year}, Division ${division}, Session ${sessionId}`);
+
+      // 1. Get all students from Firebase
+      const allStudents = await fetchStudentsFromFirebase(year, division);
+
+      if (allStudents.length === 0) {
+        Alert.alert("No Students", "No students found for this class.");
+        setLoading(false);
+        return;
+      }
+
+      // 2. Get present students from MongoDB
+      const res = await api.get(`/api/attendance/session/${sessionId}`);
+      const presentIds = res.data.presentStudents || [];
+
+      console.log(`Found ${allStudents.length} students, ${presentIds.length} present`);
+
+      // 3. Merge data
+      const merged = allStudents.map(student => ({
+        id: student.studentId,
+        studentId: student.studentId,
+        rollNo: student.prn?.slice(-2) || student.rollNo || "--",
+        name: student.name || "Unknown",
+        status: presentIds.includes(student.studentId) ? "present" : "absent",
+      }));
+
+      setStudents(merged);
+    } catch (err) {
+      console.error("Load attendance error:", err);
+      Alert.alert("Error", `Failed to load attendance: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Toggle individual student attendance
+  const toggleAttendance = async (studentId, isPresent) => {
+    try {
+      setUpdating(true);
+
+      if (isPresent) {
+        // Make absent
+        await api.post("/api/attendance/manual/remove", {
+          sessionId,
+          studentId,
+        });
+      } else {
+        // Make present
+        await api.post("/api/attendance/manual/add", {
+          sessionId,
+          studentId,
+        });
+      }
+
+      // Update UI instantly
+      setStudents(prev =>
+        prev.map(s =>
+          s.studentId === studentId
+            ? { ...s, status: isPresent ? "absent" : "present" }
+            : s
+        )
+      );
+
+      console.log(`✅ Toggled attendance for ${studentId}`);
+    } catch (err) {
+      console.error("Toggle attendance error:", err);
+      Alert.alert("Error", `Failed to update attendance: ${err.message}`);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  // Mark all students present
+  const handleMarkAllPresent = async () => {
+    try {
+      if (students.length === 0) {
+        Alert.alert("No Students", "No students to mark present.");
+        return;
+      }
+
+      setUpdating(true);
+
+      const studentIds = students.map(s => s.studentId);
+
+      await api.post("/api/attendance/manual/mark-all-present", {
+        sessionId,
+        studentIds,
+      });
+
+      // Update UI after DB success
+      setStudents(prev =>
+        prev.map(s => ({ ...s, status: "present" }))
+      );
+
+      Alert.alert("Success", "All students marked present");
+      console.log(`✅ Marked all ${studentIds.length} students present`);
+    } catch (err) {
+      console.error("Mark all present error:", err);
+      Alert.alert("Error", `Failed to mark all present: ${err.message}`);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  // Mark all students absent
+  const handleMarkAllAbsent = async () => {
+    try {
+      if (students.length === 0) {
+        Alert.alert("No Students", "No students to mark absent.");
+        return;
+      }
+
+      setUpdating(true);
+
+      await api.post("/api/attendance/manual/mark-all-absent", {
+        sessionId,
+      });
+
+      // Update UI after DB success
+      setStudents(prev =>
+        prev.map(s => ({ ...s, status: "absent" }))
+      );
+
+      Alert.alert("Success", "All students marked absent");
+      console.log(`✅ Marked all students absent`);
+    } catch (err) {
+      console.error("Mark all absent error:", err);
+      Alert.alert("Error", `Failed to mark all absent: ${err.message}`);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  // Get present count
   const getPresentCount = () => {
     return students.filter(s => s.status === 'present').length;
   };
 
+  // Get absent count
   const getAbsentCount = () => {
     return students.filter(s => s.status === 'absent').length;
   };
 
+  // Handle save (optional - attendance is already saved to backend)
   const handleSave = () => {
     Alert.alert(
-      'Save Changes',
-      'Are you sure you want to save the attendance changes?',
+      'Attendance Saved',
+      'All changes have been automatically saved to the system.',
       [
         {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Save',
-          onPress: () => {
-            // TODO: Save attendance to your database/backend
-            Alert.alert('Success', 'Attendance updated successfully!', [
-              {
-                text: 'OK',
-                onPress: () => navigation.goBack(),
-              },
-            ]);
-          },
+          text: 'OK',
+          onPress: () => navigation.goBack(),
         },
       ]
     );
   };
 
-  const handleMarkAllPresent = () => {
-    setStudents(prevStudents =>
-      prevStudents.map(student => ({ ...student, status: 'present' }))
+  // Loading state
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor="#f8fafc" />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#4f46e5" />
+          <Text style={styles.loadingText}>Loading attendance...</Text>
+        </View>
+      </SafeAreaView>
     );
-  };
-
-  const handleMarkAllAbsent = () => {
-    setStudents(prevStudents =>
-      prevStudents.map(student => ({ ...student, status: 'absent' }))
-    );
-  };
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -119,16 +271,22 @@ export default function EditAttendanceScreen({ route, navigation }) {
       {/* Quick Actions */}
       <View style={styles.quickActions}>
         <TouchableOpacity
-          style={styles.quickActionButton}
+          style={[styles.quickActionButton, updating && styles.disabledButton]}
           onPress={handleMarkAllPresent}
+          disabled={updating}
         >
-          <Text style={styles.quickActionText}>Mark All Present</Text>
+          <Text style={styles.quickActionText}>
+            {updating ? "Updating..." : "Mark All Present"}
+          </Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.quickActionButton, styles.quickActionButtonSecondary]}
+          style={[styles.quickActionButton, styles.quickActionButtonSecondary, updating && styles.disabledButton]}
           onPress={handleMarkAllAbsent}
+          disabled={updating}
         >
-          <Text style={styles.quickActionTextSecondary}>Mark All Absent</Text>
+          <Text style={styles.quickActionTextSecondary}>
+            {updating ? "Updating..." : "Mark All Absent"}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -138,34 +296,42 @@ export default function EditAttendanceScreen({ route, navigation }) {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {students.map((student) => (
-          <View key={student.id} style={styles.studentCard}>
-            <View style={styles.studentInfo}>
-              <View style={styles.rollNoContainer}>
-                <Text style={styles.rollNo}>{student.rollNo}</Text>
-              </View>
-              <Text style={styles.studentName}>{student.name}</Text>
-            </View>
-            
-            <TouchableOpacity
-              style={[
-                styles.statusButton,
-                student.status === 'present' ? styles.presentButton : styles.absentButton,
-              ]}
-              onPress={() => toggleAttendance(student.id)}
-              activeOpacity={0.7}
-            >
-              <Text
-                style={[
-                  styles.statusText,
-                  student.status === 'present' ? styles.presentStatusText : styles.absentStatusText,
-                ]}
-              >
-                {student.status === 'present' ? 'Present' : 'Absent'}
-              </Text>
-            </TouchableOpacity>
+        {students.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyStateText}>No students found</Text>
           </View>
-        ))}
+        ) : (
+          students.map((student) => (
+            <View key={student.studentId} style={styles.studentCard}>
+              <View style={styles.studentInfo}>
+                <View style={styles.rollNoContainer}>
+                  <Text style={styles.rollNo}>{student.rollNo}</Text>
+                </View>
+                <Text style={styles.studentName}>{student.name}</Text>
+              </View>
+              
+              <TouchableOpacity
+                style={[
+                  styles.statusButton,
+                  student.status === 'present' ? styles.presentButton : styles.absentButton,
+                  updating && styles.disabledButton,
+                ]}
+                onPress={() => toggleAttendance(student.studentId, student.status === "present")}
+                disabled={updating}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    styles.statusText,
+                    student.status === 'present' ? styles.presentStatusText : styles.absentStatusText,
+                  ]}
+                >
+                  {student.status === 'present' ? 'Present' : 'Absent'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ))
+        )}
 
         {/* Extra space at bottom */}
         <View style={{ height: 100 }} />
@@ -174,11 +340,14 @@ export default function EditAttendanceScreen({ route, navigation }) {
       {/* Save Button */}
       <View style={styles.saveButtonContainer}>
         <TouchableOpacity
-          style={styles.saveButton}
+          style={[styles.saveButton, updating && styles.disabledButton]}
           onPress={handleSave}
+          disabled={updating}
           activeOpacity={0.8}
         >
-          <Text style={styles.saveButtonText}>Save Changes</Text>
+          <Text style={styles.saveButtonText}>
+            {updating ? "Saving..." : "Done"}
+          </Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -189,6 +358,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f8fafc',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#64748b',
   },
   header: {
     backgroundColor: '#ffffff',
@@ -293,12 +472,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  disabledButton: {
+    opacity: 0.5,
+  },
   scrollView: {
     flex: 1,
     marginTop: 15,
   },
   scrollContent: {
     paddingHorizontal: 20,
+  },
+  emptyState: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  emptyStateText: {
+    fontSize: 16,
+    color: '#94a3b8',
   },
   studentCard: {
     flexDirection: 'row',

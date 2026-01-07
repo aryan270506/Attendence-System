@@ -277,6 +277,74 @@ router.post("/manual/mark-all-present", async (req, res) => {
   }
 });
 
+router.delete("/session/delete", async (req, res) => {
+  try {
+    const { sessionId } = req.body;
+
+    if (!sessionId) {
+      return res.status(400).json({ msg: "Session ID required" });
+    }
+
+    // ❌ DELETE SESSION
+    await AttendanceSession.deleteOne({ sessionId });
+
+    // ❌ DELETE ATTENDANCE RECORD
+    await AttendanceRecord.deleteOne({ sessionId });
+
+    console.log(`🗑️ Attendance session fully deleted → ${sessionId}`);
+
+    res.json({ msg: "Attendance session deleted completely" });
+  } catch (err) {
+    console.error("❌ Delete session failed:", err);
+    res.status(500).json({ msg: "Failed to delete session" });
+  }
+});
+
+router.post("/student-summary", async (req, res) => {
+  try {
+    const { studentId, year, division, subjects } = req.body;
+
+    if (!studentId || !year || !division || !subjects?.length) {
+      return res.status(400).json({ msg: "Missing required fields" });
+    }
+
+    const result = [];
+
+    for (const subject of subjects) {
+      // 1️⃣ TOTAL LECTURES (sessions created)
+      const totalLectures = await AttendanceSession.countDocuments({
+        year,
+        division,
+        subject,
+      });
+
+      // 2️⃣ ATTENDED LECTURES (student present)
+      const attendedLectures = await AttendanceRecord.countDocuments({
+        "presentStudents.studentId": studentId,
+        sessionId: {
+          $in: await AttendanceSession.find(
+            { year, division, subject },
+            { sessionId: 1, _id: 0 }
+          ).then(s => s.map(x => x.sessionId)),
+        },
+      });
+
+      result.push({
+        subject,
+        present: attendedLectures,
+        total: totalLectures,
+      });
+    }
+
+    res.json({ subjects: result });
+  } catch (err) {
+    console.error("❌ Student summary error:", err);
+    res.status(500).json({ msg: "Failed to calculate attendance" });
+  }
+});
+
+
+
 router.post("/manual/mark-all-absent", async (req, res) => {
   const { sessionId } = req.body;
 

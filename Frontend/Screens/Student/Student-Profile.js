@@ -10,6 +10,7 @@ import {
   Dimensions,
   StatusBar,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ref, get } from "firebase/database";
@@ -17,7 +18,8 @@ import { db } from "../firebase";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import { CommonActions } from '@react-navigation/native';
-
+import { disconnectSocket } from "../../src/services/socket";
+import api from "../../src/utils/axios";
 
 import AttendanceScreen from './Student-Record.js';
 
@@ -233,36 +235,71 @@ const StudentProfile = ({  route }) => {
           {/* Action Buttons */}
           <View style={styles.actionButtons}>
 
-           <TouchableOpacity
+          <TouchableOpacity
   style={styles.logoutButton}
-  onPress={async () => {
+  onPress={() => {
+    Alert.alert(
+      "Logout",
+      "Are you sure you want to logout?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Logout",
+          style: "destructive",
+          onPress: async () => {
+  try {
+    console.log(`🚪 STUDENT logging out: ${studentData?.id}`);
+
+    // 🔌 1. Disconnect socket (SAFE)
     try {
-      const studentName = studentData?.name || 'Unknown Student';
-
-      // ✅ LOGOUT LOG
-      console.log(`🚪 STUDENT logged out: ${studentName}`);
-
-      // 🔥 End session
-      await AsyncStorage.multiRemove([
-        'userType',
-        'studentKey',
-        'studentId',
-      ]);
-
-      // 🔁 Reset navigation → Login
-      navigation.dispatch(
-        CommonActions.reset({
-          index: 0,
-          routes: [{ name: 'Login' }],
-        })
-      );
-    } catch (error) {
-      console.error('Logout failed:', error);
+      disconnectSocket();
+    } catch (e) {
+      console.log("Socket already disconnected");
     }
+
+    // 🧹 2. Clear local session FIRST
+    await AsyncStorage.multiRemove([
+      "userType",
+      "studentKey",
+      "studentId",
+    ]);
+
+    // 🔁 3. FORCE navigation (NON-NEGOTIABLE)
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: "Login" }],
+      })
+    );
+
+    // 🔥 4. Inform backend (DO NOT await)
+    api.post("/api/users/logout", {
+      userId: studentData?.id,
+    }).catch(err =>
+      console.log("Logout API failed (ignored):", err.message)
+    );
+
+  } catch (err) {
+    console.error("Student logout fatal error:", err);
+
+    // 🚨 LAST RESORT – still navigate
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: "Login" }],
+      })
+    );
+  }
+}
+        }
+      ]
+    );
   }}
 >
   <Text style={styles.logoutButtonText}>Logout</Text>
 </TouchableOpacity>
+
+
  
 
           

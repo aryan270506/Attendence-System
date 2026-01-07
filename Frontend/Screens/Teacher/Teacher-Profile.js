@@ -5,6 +5,9 @@ import { ref, get } from "firebase/database";
 import { db } from "../firebase";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CommonActions, useNavigation } from '@react-navigation/native';
+import { disconnectSocket } from "../../src/services/socket";
+import api from "../../src/utils/axios";
+
 
 
 export default function TeacherProfile() {
@@ -266,9 +269,71 @@ const handleLogout = () => {
         </View>
 
         {/* Logout Button */}
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-          <Text style={styles.logoutButtonText}>Logout</Text>
-        </TouchableOpacity>
+        <TouchableOpacity
+  style={styles.logoutButton}
+  onPress={() => {
+    Alert.alert(
+      "Logout",
+      "Are you sure you want to logout?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Logout",
+          style: "destructive",
+          onPress: async () => {
+  try {
+    console.log(`🚪 TEACHER logging out: ${teacherData?.id}`);
+
+    // 🔌 Disconnect socket safely
+    try {
+      disconnectSocket();
+    } catch (e) {
+      console.log("Socket already disconnected");
+    }
+
+    // 🧹 Clear local session FIRST
+    await AsyncStorage.multiRemove([
+      "teacherId",
+      "userType",
+    ]);
+
+    // 🔁 RESET NAVIGATION (THIS MUST ALWAYS RUN)
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: "Login" }],
+      })
+    );
+
+    // 🔥 Call API in background (DON'T BLOCK UI)
+    api.post("/api/users/logout", {
+      userId: teacherData?.id,
+    }).catch(err => {
+      console.log("Logout API failed (ignored):", err.message);
+    });
+
+  } catch (err) {
+    console.error("Teacher logout fatal error:", err);
+
+    // 🚨 FORCE NAVIGATION EVEN IF EVERYTHING FAILS
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: "Login" }],
+      })
+    );
+  }
+}
+        },
+      ]
+    );
+  }}
+>
+  <Text style={styles.logoutButtonText}>Logout</Text>
+</TouchableOpacity>
+
+
+
 
       </View>
     </ScrollView>

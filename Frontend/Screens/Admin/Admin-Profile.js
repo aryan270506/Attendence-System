@@ -13,6 +13,9 @@ import { ref, get } from "firebase/database";
 import { db } from "../firebase"; // path may change
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CommonActions, useNavigation } from '@react-navigation/native';
+import { disconnectSocket } from "../../src/services/socket";
+import api from "../../src/utils/axios";
+
 
 
 export default function AdminProfile() {
@@ -158,12 +161,54 @@ export default function AdminProfile() {
 
       {/* Logout Button */}
       <TouchableOpacity
-        style={styles.logoutButton}
-        onPress={handleLogout}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.logoutText}>Logout</Text>
-      </TouchableOpacity>
+  style={styles.logoutButton}
+  onPress={() => {
+    Alert.alert(
+      "Logout",
+      "Are you sure you want to logout?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Logout",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              console.log(`🚪 ADMIN logged out: ${admin?.id}`);
+
+              // 🔥 1. Update logout in DB
+              await api.post("/api/users/logout", {
+                userId: admin.id,
+              });
+
+              // 🔌 2. Disconnect socket
+              disconnectSocket();
+
+              // 🧹 3. Clear local session
+              await AsyncStorage.multiRemove([
+                "adminId",
+                "userType",
+              ]);
+
+              // 🔁 4. Reset navigation
+              navigation.dispatch(
+                CommonActions.reset({
+                  index: 0,
+                  routes: [{ name: "Login" }],
+                })
+              );
+            } catch (err) {
+              console.error("Admin logout error:", err);
+            }
+          },
+        },
+      ]
+    );
+  }}
+>
+  <Text style={styles.logoutText}>Logout</Text>
+</TouchableOpacity>
+
+
     </SafeAreaView>
   );
 }

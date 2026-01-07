@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,9 +10,14 @@ import {
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ref, get } from "firebase/database";
-import { db } from "../firebase"; // Adjust path as needed
+import { db } from "../firebase";
+import api from "../../src/utils/axios";
+
+
+
 
 export default function TeacherRecord({ navigation }) {
   const [selectedClass, setSelectedClass] = useState(null);
@@ -21,12 +26,22 @@ export default function TeacherRecord({ navigation }) {
   const [classes, setClasses] = useState([]);
   const [sections, setSections] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [subjects, setSubjects] = useState([]);
+const [selectedSubject, setSelectedSubject] = useState(null);
+const [teacherFullData, setTeacherFullData] = useState(null);
+
 
   // Load recent classes when component mounts
   useEffect(() => {
-    loadRecentClasses();
-    fetchTeacherData();
-  }, []);
+  fetchTeacherData();
+}, []);
+
+useFocusEffect(
+  useCallback(() => {
+    loadRecentClasses(); // 🔥 reload every time screen opens
+  }, [])
+);
+
 
   // Fetch teacher's assigned years and divisions from Firebase
   const fetchTeacherData = async () => {
@@ -42,37 +57,36 @@ export default function TeacherRecord({ navigation }) {
         return;
       }
 
+
       // Fetch teacher data from Firebase
       const teacherRef = ref(db, `teachers/${teacherId}`);
       const snapshot = await get(teacherRef);
 
       if (snapshot.exists()) {
-        const teacherData = snapshot.val();
-        
-        // Extract years and convert to display format
-        const teacherYears = teacherData.years || [];
-        const yearLabels = teacherYears.map(year => {
-          switch(year) {
-            case 1: return '1st Year';
-            case 2: return '2nd Year';
-            case 3: return '3rd Year';
-            case 4: return '4th Year';
-            default: return `${year}th Year`;
-          }
-        });
-        setClasses(yearLabels);
+  const teacherData = snapshot.val();
 
-        // Extract divisions and convert to display format
-        const teacherDivisions = teacherData.divisions || [];
-        const divisionLabels = teacherDivisions.map(div => `Div ${div}`);
-        setSections(divisionLabels);
+  // 🔥 THIS WAS MISSING
+  setTeacherFullData(teacherData);
 
-        console.log('✅ Loaded teacher data:', {
-          years: yearLabels,
-          divisions: divisionLabels
-        });
+  // Extract years
+  const teacherYears = teacherData.years || [];
+  const yearLabels = teacherYears.map(year => {
+    switch (year) {
+      case 1: return '1st Year';
+      case 2: return '2nd Year';
+      case 3: return '3rd Year';
+      case 4: return '4th Year';
+      default: return `${year}th Year`;
+    }
+  });
+  setClasses(yearLabels);
 
-      } else {
+  // Extract divisions
+  const teacherDivisions = teacherData.divisions || [];
+  const divisionLabels = teacherDivisions.map(div => `Div ${div}`);
+  setSections(divisionLabels);
+}
+ else {
         Alert.alert('Error', 'Teacher data not found');
       }
 
@@ -84,17 +98,56 @@ export default function TeacherRecord({ navigation }) {
     }
   };
 
+
+  useEffect(() => {
+  if (!selectedClass || !teacherFullData) return;
+
+  // Convert "1st Year" → year1
+  const yearKey = selectedClass.startsWith("1")
+    ? "year1"
+    : selectedClass.startsWith("2")
+    ? "year2"
+    : selectedClass.startsWith("3")
+    ? "year3"
+    : "year4";
+
+  const yearSubjects = teacherFullData.subjects?.[yearKey] || [];
+
+  setSubjects(yearSubjects);
+  setSelectedSubject(null); // reset on year change
+}, [selectedClass]);
+
+
   // Load recent classes from AsyncStorage
-  const loadRecentClasses = async () => {
-    try {
-      const stored = await AsyncStorage.getItem('recentClasses');
-      if (stored) {
-        setRecentClasses(JSON.parse(stored));
-      }
-    } catch (error) {
-      console.log('Error loading recent classes:', error);
-    }
-  };
+  const ONE_HOUR = 60 * 60 * 1000;
+
+const loadRecentClasses = async () => {
+  try {
+    const stored = await AsyncStorage.getItem("recentClasses");
+    if (!stored) return;
+
+    const parsed = JSON.parse(stored);
+    const now = Date.now();
+
+    // ✅ keep only classes within 1 hour
+    const validRecents = parsed.filter(item => {
+      const timeDiff = now - new Date(item.timestamp).getTime();
+      return timeDiff <= ONE_HOUR;
+    });
+
+    setRecentClasses(validRecents);
+
+    // 🔥 cleanup expired ones from storage
+    await AsyncStorage.setItem(
+      "recentClasses",
+      JSON.stringify(validRecents)
+    );
+
+  } catch (error) {
+    console.log("Error loading recent classes:", error);
+  }
+};
+
 
   // Save a class-section combination to recents
   const saveToRecents = async (className, sectionName) => {
@@ -120,36 +173,83 @@ export default function TeacherRecord({ navigation }) {
     }
   };
 
-  const handleSubmit = () => {
-    if (selectedClass && selectedSection) {
-      // Save to recents
-      saveToRecents(selectedClass, selectedSection);
-      
-      // Navigate to the QR screen with params
-      navigation.navigate("AttendanceQRScreen", {
-        className: selectedClass,
-        sectionName: selectedSection,
-      });
-    } else {
-      Alert.alert(
-        "Incomplete Selection",
-        "Please select both class and section",
-        [{ text: "OK" }]
-      );
-    }
-  };
+const handleSubmit = async () => {
+  if (!selectedClass || !selectedSection || !selectedSubject) {
+    Alert.alert(
+      "Incomplete Selection",
+      "Please select Year, Division, and Subject",
+      [{ text: "OK" }]
+    );
+    return;
+  }
 
-  const handleEditAttendance = (className, sectionName) => {
-    navigation.navigate("EditAttendanceScreen", {
-      className: className,
-      sectionName: sectionName,
-      date: new Date().toLocaleDateString('en-IN', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric'
-      })
+  try {
+    const teacherId = await AsyncStorage.getItem("teacherId");
+
+    // 🔥 convert "1st Year" → 1
+    const year =
+      selectedClass.startsWith("1") ? 1 :
+      selectedClass.startsWith("2") ? 2 :
+      selectedClass.startsWith("3") ? 3 : 4;
+
+    const division = selectedSection.split(" ")[1];
+
+    // 📡 CREATE SESSION IN BACKEND
+    const response = await api.post("/api/attendance/session/create", {
+      teacherId,
+      year,
+      division,
+      subject: selectedSubject,
     });
-  };
+
+    const { sessionId } = response.data;
+
+    console.log("📘 Attendance session created:", sessionId);
+
+    // ➡️ GO TO QR SCREEN WITH SESSION ID
+    navigation.navigate("AttendanceQRScreen", {
+      sessionId,
+      className: selectedClass,
+      sectionName: selectedSection,
+      subjectName: selectedSubject,
+    });
+
+  } catch (error) {
+    console.error("❌ Failed to create session:", error);
+    Alert.alert(
+      "Error",
+      "Failed to create attendance session. Please try again.",
+      [{ text: "OK" }]
+    );
+  }
+};
+
+
+
+ const handleEditAttendance = (className, sectionName, timestamp) => {
+  const now = Date.now();
+  const diff = now - new Date(timestamp).getTime();
+
+  if (diff > 60 * 60 * 1000) {
+    Alert.alert(
+      "Edit Locked",
+      "Attendance can only be edited within 1 hour.",
+      [{ text: "OK" }]
+    );
+    return;
+  }
+
+  navigation.navigate("EditAttendanceScreen", {
+    className,
+    sectionName,
+    date: new Date().toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    }),
+  });
+};
+
 
   return (
     <SafeAreaView style={styles.container}>
@@ -232,15 +332,44 @@ export default function TeacherRecord({ navigation }) {
             </View>
           )}
 
+          {/* Subject Selection */}
+{subjects.length > 0 && (
+  <View style={styles.section}>
+    <Text style={styles.sectionTitle}>Select Subject</Text>
+
+    <View style={styles.subjectGrid}>
+      {subjects.map((subject) => (
+        <TouchableOpacity
+          key={subject}
+          style={[
+            styles.subjectButton,
+            selectedSubject === subject && styles.selectedButton,
+          ]}
+          onPress={() => setSelectedSubject(subject)}
+        >
+          <Text
+            style={[
+              styles.buttonText,
+              selectedSubject === subject && styles.selectedButtonText,
+            ]}
+          >
+            {subject}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  </View>
+)}
+
+
         {/* Selected Info */}
-        {(selectedClass || selectedSection) && (
-          <View style={styles.selectionInfo}>
-            <Text style={styles.selectionLabel}>Your Selection:</Text>
-            <Text style={styles.selectionText}>
-              {selectedClass || 'No class selected'} - {selectedSection || 'No section selected'}
-            </Text>
-          </View>
-        )}
+        <View style={styles.selectionInfo}>
+  <Text style={styles.selectionLabel}>Your Selection:</Text>
+  <Text style={styles.selectionText}>
+    {selectedClass} - {selectedSection} - {selectedSubject || "No subject"}
+  </Text>
+</View>
+
 
         {/* Submit Button */}
         <TouchableOpacity
@@ -310,6 +439,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#64748b',
   },
+  subjectGrid: {
+  flexDirection: "row",
+  flexWrap: "wrap",
+  gap: 10,
+},
+subjectButton: {
+  paddingVertical: 10,
+  paddingHorizontal: 14,
+  borderRadius: 10,
+  borderWidth: 1,
+  borderColor: "#c7d2fe",
+  backgroundColor: "#eef2ff",
+},
+
   emptyState: {
     backgroundColor: '#fef3c7',
     padding: 20,

@@ -8,6 +8,8 @@ import {
   FlatList,
 } from 'react-native';
 
+
+
 const subjectAttendance = [
   { id: '1', subject: 'Mathematics', attended: 18, total: 22 },
   { id: '2', subject: 'Physics', attended: 12, total: 20 },

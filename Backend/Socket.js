@@ -1,51 +1,63 @@
-// socket.js
 const { Server } = require("socket.io");
-
-// Map userId → socketId
-const userSockets = {};
-// { "T123": "socketId123" }
+const User = require("./Modals/User");
 
 function initSocket(server) {
   const io = new Server(server, {
-    cors: {
-      origin: "*",
-      methods: ["GET", "POST"]
-    }
+    cors: { origin: "*", methods: ["GET", "POST"] },
   });
 
   io.on("connection", (socket) => {
     console.log("🟢 Socket connected:", socket.id);
 
-    // Register user AFTER login
-    socket.on("register", ({ userId, role }) => {
-      userSockets[userId] = socket.id;
-
+    socket.on("register", async ({ userId, role }) => {
       socket.userId = userId;
-      socket.role = role;
 
-      console.log(`✅ Registered user ${userId} (${role})`);
+      await User.findOneAndUpdate(
+        { userId },
+        {
+          userId,
+          role,
+          socketId: socket.id,
+          loginTime: new Date(),
+          logoutTime: null,
+          status: "active",
+        },
+        { upsert: true }
+      );
+
+      console.log(`✅ ${userId} marked ACTIVE`);
     });
 
-    // Example: teacher starts attendance
-    socket.on("start-attendance", () => {
-      if (!socket.userId || socket.role !== "teacher") {
-        console.log("❌ Unauthorized");
-        return;
-      }
-
-      console.log("📸 Attendance started by:", socket.userId);
-    });
-
-    // Cleanup on disconnect
-    socket.on("disconnect", () => {
+    socket.on("logout", async () => {
       if (socket.userId) {
-        delete userSockets[socket.userId];
-        console.log("🔴 User disconnected:", socket.userId);
+        await User.findOneAndUpdate(
+          { userId: socket.userId },
+          {
+            status: "deactivated",
+            logoutTime: new Date(),
+            socketId: null,
+          }
+        );
+
+        console.log(`🚪 ${socket.userId} logged out`);
+      }
+      socket.disconnect(true);
+    });
+
+    socket.on("disconnect", async () => {
+      if (socket.userId) {
+        await User.findOneAndUpdate(
+          { userId: socket.userId },
+          {
+            status: "deactivated",
+            logoutTime: new Date(),
+            socketId: null,
+          }
+        );
+        console.log(`🔴 ${socket.userId} disconnected`);
       }
     });
   });
-
-  return io;
 }
 
 module.exports = initSocket;

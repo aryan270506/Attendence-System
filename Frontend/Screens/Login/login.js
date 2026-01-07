@@ -4,6 +4,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { ref, get } from "firebase/database";
 import { db } from "../firebase"; // path may change
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { connectSocket } from '../../src/services/socket';
+import api from "../../src/utils/axios";
+
 
 
 
@@ -23,83 +26,126 @@ export default function LoginScreen({ navigation }) {
     console.log("🔍 Login attempt started for:", loginId);
 
     // ================= ADMIN =================
-    const adminSnap = await get(ref(db, "Admin"));
-    if (adminSnap.exists()) {
-      const admins = adminSnap.val();
-      for (let key in admins) {
-        const admin = admins[key];
-        if (
-          (admin.id === loginId || admin.email === loginId) &&
-          admin.password === password
-        ) {
-          console.log("✅ ADMIN logged in:", admin.email || admin.id);
-          
-          // Store admin key in AsyncStorage for profile screen access
-          await AsyncStorage.setItem('adminId', key);
-          await AsyncStorage.setItem('userType', 'admin');
-          
-          navigation.replace("AdminDashboard");
-          return;
-        }
-      }
+    // ================= ADMIN =================
+const adminSnap = await get(ref(db, "Admin"));
+if (adminSnap.exists()) {
+  const admins = adminSnap.val();
+  for (let key in admins) {
+    const admin = admins[key];
+    if (
+      (admin.id === loginId || admin.email === loginId) &&
+      admin.password === password
+    ) {
+      console.log("✅ ADMIN logged in:", admin.email || admin.id);
+
+      await AsyncStorage.setItem("adminId", key);
+      await AsyncStorage.setItem("userType", "admin");
+
+      // 🔌 CONNECT SOCKET HERE
+      connectSocket({
+  firebaseKey: key,
+  userId: admin.id,
+  role: "admin"
+  
+});
+await api.post("/api/users/login", {
+  userId: admin.id,
+  role: "admin",
+});
+
+
+      navigation.replace("AdminDashboard");
+      return;
     }
+  }
+}
 
     // ================= TEACHERS =================
-    const teacherSnap = await get(ref(db, "teachers"));
-    if (teacherSnap.exists()) {
-      const teachers = teacherSnap.val();
-      for (let key in teachers) {
-        const teacher = teachers[key];
-        if (
-          (teacher.id === loginId || teacher.email === loginId) &&
-          teacher.password === password
-        ) {
-          console.log("✅ TEACHER logged in:", teacher.email || teacher.id);
-          
-          // Store teacher ID in AsyncStorage for use across all screens
-          await AsyncStorage.setItem('teacherId', key);
-          await AsyncStorage.setItem('userType', 'teacher');
-          
-          navigation.replace("TeacherDashboard", {
-            teacherId: key,
-            teacherData: {
-              ...teacher,
-              firebaseKey: key,
-            },
-          });
-          return;
-        }
-      }
+   // ================= TEACHERS =================
+const teacherSnap = await get(ref(db, "teachers"));
+if (teacherSnap.exists()) {
+  const teachers = teacherSnap.val();
+  for (let key in teachers) {
+    const teacher = teachers[key];
+    if (
+      (teacher.id === loginId || teacher.email === loginId) &&
+      teacher.password === password
+    ) {
+      console.log("✅ TEACHER logged in:", teacher.email || teacher.id);
+
+      await AsyncStorage.setItem("teacherId", key);
+      await AsyncStorage.setItem("userType", "teacher");
+
+      // 🔌 CONNECT SOCKET HERE
+      connectSocket({
+  firebaseKey: key,
+  userId: teacher.id,
+  role: "teacher"
+});
+
+api.post("/api/users/login", {
+  userId: teacher.id,
+  role: "teacher",
+}).catch(err =>
+  console.log("Login API failed (ignored):", err.message)
+);
+
+      navigation.replace("TeacherDashboard", {
+        teacherId: key,
+        teacherData: {
+          ...teacher,
+          firebaseKey: key,
+        },
+      });
+      return;
     }
+  }
+}
+
 
     // ================= STUDENTS =================
-    const studentSnap = await get(ref(db, "students"));
-    if (studentSnap.exists()) {
-      const students = studentSnap.val();
-      for (let key in students) {
-        const student = students[key];
-        if (
-          (student.id === loginId ||
-            student.email === loginId ||
-            student.prn === loginId) &&
-          student.password === password
-        ) {
-          console.log("✅ STUDENT logged in:", student.name || student.prn);
+    // ================= STUDENTS =================
+const studentSnap = await get(ref(db, "students"));
+if (studentSnap.exists()) {
+  const students = studentSnap.val();
+  for (let key in students) {
+    const student = students[key];
+    if (
+      (student.id === loginId ||
+        student.email === loginId ||
+        student.prn === loginId) &&
+      student.password === password
+    ) {
+      console.log("✅ STUDENT logged in:", student.name || student.prn);
 
-          // Store student key in AsyncStorage for persistent sessions
-          await AsyncStorage.setItem('studentKey', key);
-          await AsyncStorage.setItem('userType', 'student');
+      await AsyncStorage.setItem("studentKey", key);
+      await AsyncStorage.setItem("userType", "student");
+      await AsyncStorage.setItem("studentYear", String(student.year));
+      await AsyncStorage.setItem("studentDivision", String(student.division));
 
-          navigation.replace("StudentDashboard", {
-            studentData: {
-              ...student,
-              firebaseKey: key,
-            },
-          });
-          return;
-        }
-      }
+      // 🔌 CONNECT SOCKET HERE
+      connectSocket({
+  firebaseKey: key,
+  userId: student.id,
+  role: "student"
+});
+
+await api.post("/api/users/login", {
+  userId: student.id,
+  role: "student",
+});
+
+      navigation.replace("StudentDashboard", {
+        studentData: {
+          ...student,
+          firebaseKey: key,
+        },
+      });
+      return;
     }
+  }
+}
+
 
     // ❌ NO MATCH FOUND
     console.log("❌ Login failed: Invalid credentials for", loginId);

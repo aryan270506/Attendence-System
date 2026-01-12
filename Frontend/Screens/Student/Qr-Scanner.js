@@ -1,43 +1,27 @@
 import React, { useState, useEffect, useRef } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Animated } from "react-native";
+import { Alert, Animated } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import api from "../../src/utils/axios"; 
-
-
+import api from "../../src/utils/axios";
+import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 
 export default function StudentQRScannerScreen() {
   const navigation = useNavigation();
   const [permission, requestPermission] = useCameraPermissions();
+
   const [scanned, setScanned] = useState(false);
   const [scanning, setScanning] = useState(true);
-  const [studentYear, setStudentYear] = useState(null);
-  const [studentDivision, setStudentDivision] = useState(null);
-  const [studentSubject, setStudentSubject] = useState(null);
 
-  // Animation reference for scanning line
   const scanAnimation = useRef(new Animated.Value(0)).current;
+
+  // 🔒 HARD LOCK (prevents double scan instantly)
+  const scanLockRef = useRef(false);
 
   useEffect(() => {
     requestPermission();
   }, []);
 
-  useEffect(() => {
-    const loadStudentInfo = async () => {
-      const year = await AsyncStorage.getItem("studentYear");
-      const division = await AsyncStorage.getItem("studentDivision");
-      const subject = await AsyncStorage.getItem("currentSubject");
-
-      setStudentYear(year);
-      setStudentDivision(division);
-      setStudentSubject(subject);
-    };
-
-    loadStudentInfo();
-  }, []);
-
-  // Animate scanning line
   useEffect(() => {
     if (scanning && !scanned) {
       Animated.loop(
@@ -59,17 +43,16 @@ export default function StudentQRScannerScreen() {
     }
   }, [scanning, scanned]);
 
-  const scanLockRef = useRef(false);
-
-
-const handleBarCodeScanned = async ({ data }) => {
-  if (scanned) return; // 🔒 HARD LOCK
+  /* =========================
+     FINAL QR HANDLER (LOGIC)
+  ========================== */
+  const handleBarCodeScanned = async ({ data }) => {
+  if (scanned) return;
 
   setScanned(true);
   setScanning(false);
 
   let payload;
-
   try {
     payload = JSON.parse(data);
   } catch {
@@ -77,7 +60,6 @@ const handleBarCodeScanned = async ({ data }) => {
     return;
   }
 
-  // ✅ Validate QR
   if (
     payload.type !== "ATTENDANCE_QR" ||
     !payload.sessionId ||
@@ -87,8 +69,7 @@ const handleBarCodeScanned = async ({ data }) => {
     return;
   }
 
-  // ⏰ Expiry check
-  if (Date.now() - payload.issuedAt > 10_000) {
+  if (Date.now() - payload.issuedAt > 10000) {
     Alert.alert(
       "QR Expired ⏰",
       "Please scan the latest QR",
@@ -99,11 +80,13 @@ const handleBarCodeScanned = async ({ data }) => {
 
   try {
     const studentId = await AsyncStorage.getItem("studentId");
+    const studentYear = await AsyncStorage.getItem("studentYear");
+    const studentDivision = await AsyncStorage.getItem("studentDivision");
 
-    if (!studentId) {
+    if (!studentId || !studentYear || !studentDivision) {
       Alert.alert(
         "Session Error ❌",
-        "Student ID missing. Please login again.",
+        "Student data missing. Please login again.",
         [{ text: "Login", onPress: () => navigation.replace("Login") }]
       );
       return;
@@ -112,6 +95,8 @@ const handleBarCodeScanned = async ({ data }) => {
     await api.post("/api/attendance/mark", {
       sessionId: payload.sessionId,
       studentId,
+      studentYear,
+      studentDivision,
     });
 
     Alert.alert(
@@ -119,13 +104,13 @@ const handleBarCodeScanned = async ({ data }) => {
       "You are marked present for this class.",
       [{ text: "OK" }]
     );
-
   } catch (err) {
     if (err?.response?.status === 409) {
+      Alert.alert("Already Marked ⚠️", "Attendance already recorded.");
+    } else if (err?.response?.status === 403) {
       Alert.alert(
-        "Already Marked ⚠️",
-        "You have already scanned this QR.",
-        [{ text: "OK" }]
+        "Access Denied ❌",
+        "This QR is not for your class or division."
       );
     } else {
       Alert.alert(
@@ -138,15 +123,11 @@ const handleBarCodeScanned = async ({ data }) => {
 };
 
 
-
-
-
   const resetScanner = () => {
-  scanLockRef.current = false;
-  setScanned(false);
-  setScanning(true);
-};
-
+    scanLockRef.current = false;
+    setScanned(false);
+    setScanning(true);
+  };
 
   const showInvalidQR = () => {
     Alert.alert(

@@ -54,23 +54,34 @@ router.post("/session/create", async (req, res) => {
 ===================================================== */
 router.post("/mark", async (req, res) => {
   try {
-    const { sessionId, studentId } = req.body;
+    const { sessionId, studentId, studentYear, studentDivision } = req.body;
 
-    if (!sessionId || !studentId) {
-      return res.status(400).json({ msg: "Missing sessionId or studentId" });
+    if (!sessionId || !studentId || !studentYear || !studentDivision) {
+      return res.status(400).json({ msg: "Missing required data" });
     }
 
     // 1️⃣ Validate session
     const session = await AttendanceSession.findOne({ sessionId });
     if (!session) {
-      return res.status(404).json({ msg: "Session not found or deleted" });
+      return res.status(404).json({ msg: "Invalid or deleted session" });
     }
 
+    // 2️⃣ Check expiry
     if (Date.now() > session.expiresAt) {
       return res.status(400).json({ msg: "Session expired" });
     }
 
-    // 2️⃣ HARD DUPLICATE CHECK (student-level)
+    // 3️⃣ 🚨 CLASS & DIVISION VALIDATION (CRITICAL)
+    if (
+      Number(session.year) !== Number(studentYear) ||
+      String(session.division) !== String(studentDivision)
+    ) {
+      return res.status(403).json({
+        msg: "You are not allowed to mark attendance for this class",
+      });
+    }
+
+    // 4️⃣ Duplicate scan check
     const alreadyMarked = await AttendanceRecord.findOne({
       sessionId,
       "presentStudents.studentId": studentId,
@@ -78,11 +89,11 @@ router.post("/mark", async (req, res) => {
 
     if (alreadyMarked) {
       return res.status(409).json({
-        msg: "QR already scanned. Attendance already marked.",
+        msg: "Attendance already marked",
       });
     }
 
-    // 3️⃣ SAFE INSERT (only once)
+    // 5️⃣ Mark present (ONCE)
     await AttendanceRecord.updateOne(
       { sessionId },
       {
@@ -96,7 +107,7 @@ router.post("/mark", async (req, res) => {
       { upsert: true }
     );
 
-    console.log(`🧑‍🎓 Attendance marked → ${studentId}`);
+    console.log(`✅ Attendance marked → ${studentId}`);
 
     res.json({ msg: "Attendance marked successfully" });
   } catch (err) {
@@ -104,6 +115,7 @@ router.post("/mark", async (req, res) => {
     res.status(500).json({ msg: "Server error" });
   }
 });
+
 
 
 
